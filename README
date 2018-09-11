@@ -1,0 +1,5 @@
+Poor Man's BTS
+==============
+
+Use `objtool coverage` to get a list of jump points, then
+use `./poormanbts -p $pid -i coverage.txt` to generate branching report for them.

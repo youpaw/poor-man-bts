@@ -1,0 +1,3 @@
+[submodule "libcare"]
+	path = libcare
+	url = https://github.com/cloudlinux/libcare

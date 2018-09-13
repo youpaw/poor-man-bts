@@ -221,20 +221,51 @@ static bool trace_point_check_condition(int pid, struct tracepoint *tpoint)
 
 #define	FLAG(x)	(eflags & X86_EFLAGS_ ## x)
 	switch (tpoint->jcc.opcode) {
-	case	0x7f: /* jg */
-		return	!FLAG(ZF) && FLAG(SF) == FLAG(OF);
+	case	0x77: /* ja or jnbe */
+		return	!FLAG(CF) && !FLAG(ZF);
 
-	case	0x74: /* je */
-		return	FLAG(ZF);
+	case	0x73: /* jae or jnc or jnb */
+		return	!FLAG(CF);
 
-	case	0x76: /* jbe */
+	case	0x72: /* jb or jc or jnae */
+		return	FLAG(CF);
+
+	case	0x76: /* jbe or jna */
 		return	FLAG(CF) || FLAG(ZF);
 
-	case	0x73: /* jae */
-		return	!FLAG(CF);
+	case	0x74: /* je or jz */
+		return	FLAG(ZF);
+
+	case	0x7f: /* jg or jnle */
+		return	!FLAG(ZF) && FLAG(SF) == FLAG(OF);
+
+	case	0x7d: /* jge or jnl */
+		return	FLAG(SF) == FLAG(OF);
+
+	case	0x7c: /* jl or jnge */
+		return	FLAG(SF) != FLAG(OF);
+
+	case	0x7e: /* jle or jng */
+		return	FLAG(ZF) || FLAG(SF) != FLAG(OF);
 
 	case	0x75: /* jne */
 		return	!FLAG(ZF);
+
+	case	0x71: /* jno */
+		return	!FLAG(OF);
+
+	case	0xe3: /* jcxz/jecxz/jrcxz */
+		return	!!ptrace(PTRACE_PEEKUSER, pid,
+				 offsetof(struct user_regs_struct, rcx), NULL);
+
+	case	0x7b: /* jnp or jpo */
+		return	!FLAG(PF);
+
+	case	0x7a: /* jp or jpe */
+		return	FLAG(PF);
+
+	case	0x78: /* js */
+		return	FLAG(SF);
 
 	case	0xe9:
 	case	0xeb:

@@ -300,7 +300,6 @@ static long trace_point_resolve_to(int pid, long rip, struct tracepoint *tpoint)
 		else
 			off = ptrace(PTRACE_PEEKUSER, pid, reg_to_offset[reg], NULL);
 		off += tpoint->jcc.dynamic_disp32;
-		printf("off = %lx\n", off);
 		return ptrace(PTRACE_PEEKDATA, pid, off, NULL);
 	}
 
@@ -316,7 +315,7 @@ static void trace_point_execute(int pid, long rip, struct tracepoint *tpoint)
 	if (trace_point_check_condition(pid, tpoint))
 		rip = trace_point_resolve_to(pid, rip, tpoint);
 
-	printf("from = %lx, opcode = %x, to = %lx\n", tpoint->jcc.from, tpoint->jcc.opcode, rip);
+	printf("from = %lx, to = %lx\n", tpoint->jcc.from, rip);
 
 	rv = ptrace(PTRACE_POKEUSER, pid,
 		    offsetof(struct user_regs_struct, rip),
@@ -338,7 +337,6 @@ static int trace_process(kpatch_process_t *child,
 	while (1) {
 		pid = kpatch_process_execute_until_stop(child);
 
-		printf("pid = %d\n", pid);
 		rv = ptrace(PTRACE_PEEKUSER, pid,
 			    offsetof(struct user_regs_struct, rip),
 			    NULL);

@@ -14,142 +14,35 @@
 #include <sys/socket.h>
 #include <sys/user.h>
 
+#include <kpatch_process.h>
+#include <kpatch_log.h>
+#include <kpatch_ptrace.h>
+
 #include "eflags.h"
+#include "common.h"
 
-#include "kpatch_process.h"
-#include "kpatch_log.h"
-
-struct jump_op {
-#define JUMP_OP_OPCODE_DYNAMIC	0xff
-	unsigned int opcode;
-
-	unsigned long from;
-	unsigned int len;
-	unsigned long to;
-
-#define JUMP_OP_DYNAMIC_REG_REF	0x80
-	unsigned int dynamic_reg;
-	unsigned int dynamic_sib_mult;
-	unsigned int dynamic_sib_reg;
-
-	unsigned int dynamic_disp32;
-};
-
-
-/* TODO(pboldin): This code should be a part of objtool-coverage library */
-static int parse_jump_op(struct jump_op *jcc,
-			 const char *in)
+static int install_trace_point(kpatch_process_t *child, struct tracepoint *tpoint)
 {
-	int ret, len;
-	const char *p = in;
+	int rv;
+	static char bkpnt_insn[] = { 0xcc };
+	long dst = tpoint->jcc.from;
 
-	memset(jcc, 0, sizeof(*jcc));
-	ret = sscanf(p, "0x%x 0x%lx+0x%x %n",
-		     &jcc->opcode,
-		     &jcc->from,
-		     &jcc->len,
-		     &len);
-	if (ret != 3)
-		return -1;
+	rv = kpatch_process_mem_read(child,
+				     dst,
+				     tpoint->orig,
+				     sizeof(tpoint->orig));
 
-	p += len;
+	if (rv < 0)
+		return rv;
 
-	ret = sscanf(p, "0x%lx", &jcc->to);
-	if (ret == 1)
-		return 0;
-
-	ret = sscanf(p, "*0x%x(%d, %d, %d)",
-		     &jcc->dynamic_disp32,
-		     &jcc->dynamic_reg,
-		     &jcc->dynamic_sib_reg,
-		     &jcc->dynamic_sib_mult);
-	if (ret == 4)
-		goto check_dynamic_ref;
-
-	ret = sscanf(p, "*0x%x(%d)",
-		     &jcc->dynamic_disp32,
-		     &jcc->dynamic_reg);
-	if (ret == 2)
-		goto check_dynamic_ref;
-
-	ret = sscanf(p, "*%d",
-		     &jcc->dynamic_reg);
-	if (ret == 1)
-		goto check_dynamic_jump;
-
-	return -1;
-
-check_dynamic_ref:
-	jcc->dynamic_reg |= JUMP_OP_DYNAMIC_REG_REF;
-check_dynamic_jump:
-	if (jcc->opcode != JUMP_OP_OPCODE_DYNAMIC)
-		return -1;
+	rv = kpatch_process_mem_write(child,
+				      bkpnt_insn,
+				      dst,
+				      sizeof(bkpnt_insn));
+	if (rv < 0)
+		return rv;
 
 	return 0;
-}
-
-struct tracepoint {
-	struct jump_op jcc;
-	void *origcode;
-};
-
-static int read_input_file(const char *filename,
-			   struct tracepoint **points,
-			   size_t *npoints)
-{
-	FILE *fh;
-	char buf[1024];
-	struct tracepoint *t = NULL, tmp;
-	size_t n = 0, nalloc = 0;
-	int ret;
-
-	*points = NULL;
-	*npoints = 0;
-
-	if (!strcmp(filename, "-"))
-		fh = stdin;
-	else
-		fh = fopen(filename, "r");
-
-	if (fh == NULL) {
-		perror("fopen");
-		return -1;
-	}
-
-	while (!feof(fh)) {
-		fgets(buf, sizeof(buf), fh);
-		ret = parse_jump_op(&tmp.jcc, buf);
-		if (ret < 0) {
-			fprintf(stderr, "can't parse %s\n", buf);
-			goto out_err;
-		}
-
-		if (n + 1 > nalloc) {
-			struct tracepoint *newt;
-
-			nalloc = nalloc ? nalloc * 2 : 16;
-			newt = realloc(t, sizeof(*t) * nalloc);
-			if (newt == NULL) {
-				ret = -1;
-				goto out_err;
-			}
-
-			t = newt;
-		}
-
-		t[n] = tmp;
-		n++;
-	}
-
-	*points = t;
-	*npoints = n;
-
-out_err:
-	if (ret < 0)
-		free(t);
-	if (fh != stdin)
-		fclose(fh);
-	return ret;
 }
 
 static int install_trace_points(kpatch_process_t *child, struct tracepoint *tpoints, size_t npoints)
@@ -160,9 +53,9 @@ static int install_trace_points(kpatch_process_t *child, struct tracepoint *tpoi
 	size_t i;
 
 	for (i = 0, p = tpoints; i < npoints; i++, p++) {
-		ret = pwrite(memfd, "\xcc", 1, p->jcc.from);
+		ret = install_trace_point(child, p);
 		if (ret < 0)
-			perror("pwrite");
+			goto out;
 	}
 
 	ret = 0;
@@ -336,6 +229,9 @@ static int trace_process(kpatch_process_t *child,
 	
 	while (1) {
 		pid = kpatch_process_execute_until_stop(child);
+		/* They are all exited */
+		if (pid == 0)
+			break;
 
 		rv = ptrace(PTRACE_PEEKUSER, pid,
 			    offsetof(struct user_regs_struct, rip),
@@ -356,6 +252,8 @@ static int trace_process(kpatch_process_t *child,
 			printf("Unexpected stop at %lx\n", rv);
 		}
 	}
+
+	return 0;
 }
 
 int main(int argc, char * const argv[])
@@ -366,7 +264,7 @@ int main(int argc, char * const argv[])
 	int pid;
 	kpatch_process_t child;
 
-	ret = read_input_file(argv[1], &tpoints, &npoints);
+	ret = jump_op_read_input_file(argv[1], &tpoints, &npoints);
 	if (ret < 0)
 		return -1;
 

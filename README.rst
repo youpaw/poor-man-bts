@@ -19,12 +19,7 @@ How to use it
 
         git clone https://github.com/paboldin/poor-man-bts
         cd poor-man-bts
-        git submodule init
-        git submodule update libcare
-        git submodule update linux-objtool-coverage --depth 1
-
-   I have to use submodule for ``linux-objtool-coverage``. If you know how to
-   move ``tools/objtool`` away from the kernel let me know!
+        git submodule init && git submodule update
 
 #. Build it via make::
 
@@ -32,8 +27,8 @@ How to use it
 
 #. Use ``objtool coverage`` to get a list of jump points for an executable::
 
-	$ cp linux-objtool-coverage/tools/objtool objtool1
-	$ linux-objtool-coverage/tools/objtool coverage --no-kpatch objtool1 > output.test
+	$ cp objtool/tools/objtool/objtool objtool1
+	$ objtool/tools/objtool/objtool coverage --no-kpatch objtool1 > output.test
 
 #. Take a look at what is in ``output.test`` file. It contains a list of
    detected jump points with opcodes and information on where to get the
@@ -51,5 +46,20 @@ How to use it
         0xff    0x0000000000401a50+0x00000006   *0x21c5da(32)
         0xe9    0x0000000000401a5b+0x00000005   0x0000000000401a10
 
-#. Use ``./poormanbts output.test objtool1`` to generate
-   branching report for the code.
+#. Try it!::
+  
+        $ ./poormanbts output.test ./objtool1
+        attached to 1 thread(s): 16283
+        kpatch_ctl real cmdline="./objtool1\x00"
+        from = 401c90, to = 401c96
+        from = 401c9b, to = 401a10
+        from = 401a16, to = 7fdd68ad3870
+        from = 4019fe, to = 401a05
+        from = 413af4, to = 413af6
+        from = 402409, to = 40240b
+        from = 40240b, to = 4023a0
+        from = 4023c1, to = 4023d8
+        from = 413b14, to = 413b16
+        from = 40efb1, to = 40f049
+        from = 40f051, to = 40f057
+        ...

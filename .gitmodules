@@ -1,3 +1,6 @@
 [submodule "libcare"]
 	path = libcare
 	url = https://github.com/paboldin/libcare
+[submodule "linux-objtool-coverage"]
+	path = linux-objtool-coverage
+	url = https://github.com/paboldin/linux-objtool-coverage

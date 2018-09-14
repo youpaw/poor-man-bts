@@ -2,6 +2,13 @@
 CPPFLAGS += -Ilibcare/src
 LDLIBS += $(shell pkg-config --libs libunwind libunwind-ptrace)
 
+all: poormanbts objtool
+
+objtool: linux-objtool-coverage/tools/objtool/objtool
+
+linux-objtool-coverage/tools/objtool/objtool: FORCE
+	make -C $(dir $@)
+
 poormanbts:	poormanbts.o 		\
 		common.o		\
 		libcare/src/libcare.a
@@ -12,3 +19,5 @@ libcare/src/libcare.a: libcare/src/*.c libcare/src/*.h
 clean:
 	rm -f poormanbts poormanbts.o
 	make -C libcare/src clean
+
+FORCE:

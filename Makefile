@@ -4,9 +4,9 @@ LDLIBS += $(shell pkg-config --libs libunwind libunwind-ptrace)
 
 all: poormanbts objtool
 
-objtool: objtool/tools/objtool/objtool
+objtool: tools/objtool/objtool
 
-objtool/tools/objtool/objtool: FORCE
+tools/objtool/objtool: FORCE
 	make -C $(dir $@)
 
 poormanbts:	poormanbts.o 		\

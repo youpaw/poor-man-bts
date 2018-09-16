@@ -27,14 +27,18 @@ How to use it
 
 #. Use ``objtool coverage`` to get a list of jump points for an executable::
 
-	$ cp objtool/tools/objtool/objtool objtool1
-	$ objtool/tools/objtool/objtool coverage --no-kpatch objtool1 > output.test
+	$ ./objtool coverage objtool > output.test
+
+#. And even for a library it may load!::
+
+        $ ./objtool coverage /lib/x86_64-linux-gnu/libc-2.23.so >> output.test
 
 #. Take a look at what is in ``output.test`` file. It contains a list of
    detected jump points with opcodes and information on where to get the
    destination from::
 
         $ head output.test
+        # objname=objtool1
         0x74    0x00000000004019fe+0x00000002   0x0000000000401a05
         0xff    0x0000000000401a16+0x00000006   *0x21c5f4(32)
         0xff    0x0000000000401a20+0x00000006   *0x21c5f2(32)
@@ -49,17 +53,34 @@ How to use it
 #. Try it!::
   
         $ ./poormanbts output.test ./objtool1
-        attached to 1 thread(s): 16283
+        attached to 1 thread(s): 1884
         kpatch_ctl real cmdline="./objtool1\x00"
-        from = 401c90, to = 401c96
-        from = 401c9b, to = 401a10
-        from = 401a16, to = 7fdd68ad3870
-        from = 4019fe, to = 401a05
-        from = 413af4, to = 413af6
-        from = 402409, to = 40240b
-        from = 40240b, to = 4023a0
-        from = 4023c1, to = 4023d8
-        from = 413b14, to = 413b16
-        from = 40efb1, to = 40f049
-        from = 40f051, to = 40f057
+        Found 10 object file(s).
+        objtool1: load offset: 0 = 400000 - 400000
+        libz.so.1.2.8: load offset: 7f91ea3aa000 = 7f91ea3aa000 - 0
+        libc-2.23.so: load offset: 7f91ea5c4000 = 7f91ea5c4000 - 0
+        libelf-0.165.so: load offset: 7f91ea98e000 = 7f91ea98e000 - 0
+        ld-2.23.so: load offset: 7f91eaba6000 = 7f91eaba6000 - 0
+        Found 0 applied patch(es).
+        objname = objtool1, load_addr = 0
+        objname = libc-2.23.so, load_addr = 7f91ea5c4000
+        from = 401cd0, to = 401cd6
+        from = 401cdb, to = 401a50
+        from = 401a56, to = 7f91eabbd870
+        from = 7f91ea5e476a, to = 7f91ea5e4837
+        from = 7f91ea5e4839, to = 7f91ea5e4779
+        from = 7f91ea5e4785, to = 7f91ea5e4787
+        from = 7f91ea5fe0b7, to = 7f91ea5fe0c5
+        from = 7f91ea5fe0cc, to = 7f91ea5fe0e8
         ...
+
+
+TODO
+----
+
+* Only print jump address via ``coverage``. Parse the rest from the executable
+  via ``tools/objtool/arch/x86/decode``.
+* Introduce single-stepping option. No need to execute any code on our own!
+  Just restore original code and go on! (Merge this code with ``libcare``).
+* Write a kernel module with ``kprobes``. Use ``post_handler`` to see where it
+  all got to.

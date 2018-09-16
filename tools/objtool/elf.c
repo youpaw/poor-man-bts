@@ -225,7 +225,8 @@ static int read_symbols(struct elf *elf)
 	symtab = find_section_by_name(elf, ".symtab");
 	if (!symtab) {
 		WARN("missing symbol table");
-		return -1;
+		//return -1;
+		return 0;
 	}
 
 	symbols_nr = symtab->sh.sh_size / symtab->sh.sh_entsize;
@@ -385,7 +386,8 @@ static int read_relas(struct elf *elf)
 			if (!rela->sym) {
 				WARN("can't find rela entry symbol %d for %s",
 				     symndx, sec->name);
-				return -1;
+				//return -1;
+				return 0;
 			}
 
 			list_add_tail(&rela->list, &sec->rela_list);

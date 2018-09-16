@@ -50,6 +50,12 @@ struct instruction *find_insn(struct objtool_file *file,
 		if (insn->sec == sec && insn->offset == offset)
 			return insn;
 
+	if (!sec->len)
+		return NULL;
+
+	if (offset > sec->len)
+		return NULL;
+
 	insn = malloc(sizeof(*insn));
 	if (!insn) {
 		WARN("malloc failed");
@@ -588,7 +594,8 @@ static int add_jump_destinations(struct objtool_file *file)
 			WARN_FUNC("can't find jump dest instruction at %s+0x%lx",
 				  insn->sec, insn->offset, dest_sec->name,
 				  dest_off);
-			return -1;
+			//return -1;
+			continue;
 		}
 
 		/*

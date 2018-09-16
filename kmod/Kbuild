@@ -1,0 +1,8 @@
+
+obj-m := poormanbts.o
+
+poormanbts-y += common.o
+poormanbts-y += module.o
+
+$(obj)/common.o: $(obj)/../common.c
+	@$(cmd_cc_o_c)

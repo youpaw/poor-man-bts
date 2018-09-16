@@ -62,31 +62,22 @@ static int print_jump_instruction_dynamic(struct section *sec,
 	return 0;
 }
 
-#define PRINT_ABSOLUTE
-
-static int print_jump_instruction(struct section *sec, struct instruction *insn)
+static int print_jump_instruction(struct section *sec,
+				  struct instruction *insn)
 {
-#ifdef PRINT_ABSOLUTE
+	if (insn->jump_dest == NULL &&
+	    insn->type != INSN_JUMP_DYNAMIC)
+		return 0;
+
 	printf("0x%x\t0x%016lx+0x%08x\t",
 	       insn->jcc.opcode,
 	       sec->sh.sh_addr + insn->offset,
 	       insn->len);
-#else
-	printf("0x%x\t%s+0x%016lx+0x%08x\t",
-	       insn->jcc.opcode,
-	       sec->name,
-	       insn->offset,
-	       insn->len);
-#endif
 
 	if (insn->jump_dest) {
 		struct instruction *dest = insn->jump_dest;
 
-#ifdef PRINT_ABSOLUTE
 		printf("0x%016lx\t", dest->sec->sh.sh_addr + dest->offset);
-#else
-		printf("%s+0x%016lx\t", dest->sec->name, dest->offset);
-#endif
 	} else if (insn->type == INSN_JUMP_DYNAMIC) {
 		print_jump_instruction_dynamic(sec, insn);
 	} else {
@@ -94,6 +85,7 @@ static int print_jump_instruction(struct section *sec, struct instruction *insn)
 	}
 
 	printf("\n");
+	return 0;
 }
 
 static int validate_functions(struct objtool_file *file)

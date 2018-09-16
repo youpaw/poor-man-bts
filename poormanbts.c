@@ -52,7 +52,7 @@ static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *
 	struct pmb_tracepoint *p;
 	size_t i;
 	const char *objname = NULL;
-	long obj_load_addr;
+	long obj_load_addr = 0;
 	kpatch_object_file_t *obj;
 
 	for (i = 0, p = tpoints; i < npoints; i++, p++) {
@@ -63,13 +63,17 @@ static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *
 			obj_load_addr = obj->load_offset;
 			printf("objname = %s, load_addr = %lx\n",
 			       objname, obj_load_addr);
-
-			p->jcc.from += obj_load_addr;
 		}
 
+		p->jcc.from += obj_load_addr;
+		p->jcc.to += obj_load_addr;
+
 		ret = install_trace_point(child, p);
-		if (ret < 0)
+		if (ret < 0) {
+			printf("Can't install tracepoint at %lx\n",
+			       p->jcc.from);
 			goto out;
+		}
 	}
 
 	ret = 0;

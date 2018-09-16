@@ -51,8 +51,22 @@ static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *
 	int ret = -1;
 	struct pmb_tracepoint *p;
 	size_t i;
+	const char *objname = NULL;
+	long obj_load_addr;
+	kpatch_object_file_t *obj;
 
 	for (i = 0, p = tpoints; i < npoints; i++, p++) {
+		if (objname != p->objname) {
+			objname = p->objname;
+
+			obj = kpatch_process_get_obj_by_regex(child, objname);
+			obj_load_addr = obj->load_offset;
+			printf("objname = %s, load_addr = %lx\n",
+			       objname, obj_load_addr);
+
+			p->jcc.from += obj_load_addr;
+		}
+
 		ret = install_trace_point(child, p);
 		if (ret < 0)
 			goto out;
@@ -86,8 +100,25 @@ static int attach_to_process(kpatch_process_t *child, char * const *argv)
 		return execvp(argv[0], argv);
 	}
 
-	kpatch_process_init(child, pid, 1, sv[1]);
-	kpatch_process_load_libraries(child);
+	ret = kpatch_process_init(child, pid, 1, sv[1]);
+	if (ret < 0) {
+		perror("kpatch_process_init");
+		return -1;
+	}
+
+	ret = kpatch_process_load_libraries(child);
+	if (ret < 0) {
+		perror("kpatch_process_load_libraries");
+		return -1;
+	}
+
+	ret = kpatch_process_map_object_files(child);
+	if (ret < 0) {
+		perror("kpatch_process_map_object_files");
+		return -1;
+	}
+
+	return 0;
 }
 
 unsigned long reg_to_offset[] = {

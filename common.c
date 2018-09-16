@@ -1,12 +1,22 @@
 
+#ifndef __KERNEL__
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
+#include <stdint.h>
+#include <errno.h>
+#else /* ifndef __KERNEL__ */
+#include <linux/string.h>
+#include <linux/kernel.h>
+#include <linux/gfp.h>
+#endif /* else ifndef __KERNEL__ */
 
 #include "common.h"
 
-/* TODO(pboldin): This code should be a part of objtool-coverage library */
+#ifdef __KERNEL__
+#define strdup(x)	kstrdup(x, GFP_KERNEL)
+#endif
+
 static int jump_op_parse(struct jump_op *jcc,
 			 const char *in)
 {
@@ -58,15 +68,48 @@ check_dynamic_jump:
 	return 0;
 }
 
+int parse_trace_point_line(const char *buf, struct pmb_tracepoint *point)
+{
+	char *p;
+	const char objname_str[] = "objname=";
+	const size_t objname_str_len = sizeof(objname_str) - 1;
+	static char *objname;
+	int ret;
+
+	p = strstr(buf, objname_str);
+	if (p) {
+		p += objname_str_len;
+		objname = strdup(p);
+	}
+
+	p = strchr(buf, '#');
+	if (p == buf)
+		return 0;
+
+	if (p)
+		*p = '\0';
+
+	ret = jump_op_parse(&point->jcc, buf);
+	if (ret < 0) {
+		return -1;
+	}
+	point->objname = objname;
+
+	return 1;
+}
+
+#ifndef __KERNEL__
 int jump_op_read_input_file(const char *filename,
-			    struct tracepoint **points,
+			    struct pmb_tracepoint **points,
 			    size_t *npoints)
 {
 	FILE *fh;
-	char buf[1024];
-	struct tracepoint *t = NULL, tmp;
+	char buf[1024], *p;
+	struct pmb_tracepoint *t = NULL, tmp;
 	size_t n = 0, nalloc = 0;
-	int ret;
+	int ret = -1;
+
+	tmp.objname = NULL;
 
 	*points = NULL;
 	*npoints = 0;
@@ -82,17 +125,25 @@ int jump_op_read_input_file(const char *filename,
 	}
 
 	while (!feof(fh)) {
-		fgets(buf, sizeof(buf), fh);
-		ret = jump_op_parse(&tmp.jcc, buf);
-		if (ret < 0) {
-			fprintf(stderr, "can't parse %s\n", buf);
+		if (fgets(buf, sizeof(buf), fh) == NULL) {
+			if (errno == 0)
+				break;
+
 			goto out_err;
 		}
 
-		if (n + 1 > nalloc) {
-			struct tracepoint *newt;
+		buf[strlen(buf) - 1] = '\0';
 
-			nalloc = nalloc ? nalloc * 2 : 16;
+		ret = parse_trace_point_line(buf, &tmp);
+		if (ret < 0)
+			goto out_err;
+		if (ret == 0)
+			continue;
+
+		if (n + 1 > nalloc) {
+			struct pmb_tracepoint *newt;
+
+			nalloc += 1024;
 			newt = realloc(t, sizeof(*t) * nalloc);
 			if (newt == NULL) {
 				ret = -1;
@@ -109,6 +160,7 @@ int jump_op_read_input_file(const char *filename,
 	*points = t;
 	*npoints = n;
 
+	ret = 0;
 out_err:
 	if (ret < 0)
 		free(t);
@@ -116,4 +168,4 @@ out_err:
 		fclose(fh);
 	return ret;
 }
-
+#endif /* ifndef __KERNEL__ */

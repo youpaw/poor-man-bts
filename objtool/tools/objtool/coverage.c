@@ -15,8 +15,10 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#define _GNU_SOURCE
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "builtin.h"
 #include "check.h"
@@ -99,6 +101,12 @@ static int validate_functions(struct objtool_file *file)
 	struct section *sec;
 	struct instruction *insn;
 	int ret;
+	char buf[1024];
+	size_t n;
+
+	n = readlink(objname, buf, sizeof(buf));
+	buf[n] = '\0';
+	printf("# objname=%s\n", basename(buf));
 
 	for_each_sec(file, sec) {
 		if (!(sec->sh.sh_flags & SHF_EXECINSTR))

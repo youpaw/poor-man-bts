@@ -19,6 +19,8 @@ struct jump_op {
 };
 
 struct pmb_tracepoint {
+	const char *objname;
+
 	struct jump_op jcc;
 	unsigned char orig[1];
 };

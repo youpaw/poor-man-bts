@@ -176,7 +176,7 @@ static bool trace_point_check_condition(int pid, struct pmb_tracepoint *tpoint)
 	case	0x7e: /* jle or jng */
 		return	FLAG(ZF) || FLAG(SF) != FLAG(OF);
 
-	case	0x75: /* jne */
+	case	0x75: /* jne or jnz */
 		return	!FLAG(ZF);
 
 	case	0x71: /* jno */
@@ -189,11 +189,17 @@ static bool trace_point_check_condition(int pid, struct pmb_tracepoint *tpoint)
 	case	0x7b: /* jnp or jpo */
 		return	!FLAG(PF);
 
+	case	0x79: /* jns */
+		return	!FLAG(SF);
+
 	case	0x7a: /* jp or jpe */
 		return	FLAG(PF);
 
 	case	0x78: /* js */
 		return	FLAG(SF);
+
+	case	0x70: /* jo */
+		return	FLAG(OF);
 
 	case	0xe9:
 	case	0xeb:

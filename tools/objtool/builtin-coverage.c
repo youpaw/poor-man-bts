@@ -29,7 +29,7 @@
 #include "builtin.h"
 #include "coverage.h"
 
-bool no_fp, no_unreachable, retpoline, module, is_coverage, no_kpatch;
+bool no_fp, no_unreachable, retpoline, module, is_coverage, is_kpatch;
 
 static const char * const coverage_usage[] = {
 	"objtool coverage [<options>] file.o",
@@ -41,7 +41,7 @@ const struct option coverage_options[] = {
 	OPT_BOOLEAN('u', "no-unreachable", &no_unreachable, "Skip 'unreachable instruction' warnings"),
 	OPT_BOOLEAN('r', "retpoline", &retpoline, "Validate retpoline assumptions"),
 	OPT_BOOLEAN('m', "module", &module, "Indicates the object will be part of a kernel module"),
-	OPT_BOOLEAN('e', "no-kpatch", &no_kpatch, "Indicates the object wont be a part of kpatch"),
+	OPT_BOOLEAN('k', "kpatch", &is_kpatch, "Indicates the object will be a part of kpatch"),
 	OPT_END(),
 };
 

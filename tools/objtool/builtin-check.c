@@ -29,7 +29,7 @@
 #include "builtin.h"
 #include "check.h"
 
-bool no_fp, no_unreachable, retpoline, module, no_kpatch;
+bool no_fp, no_unreachable, retpoline, module, is_kpatch;
 
 static const char * const check_usage[] = {
 	"objtool check [<options>] file.o",
@@ -48,7 +48,6 @@ int cmd_check(int argc, const char **argv)
 {
 	const char *objname;
 
-	no_kpatch = 1;
 	argc = parse_options(argc, argv, check_options, check_usage, 0);
 
 	if (argc != 1)

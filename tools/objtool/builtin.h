@@ -20,7 +20,7 @@
 #include <subcmd/parse-options.h>
 
 extern const struct option check_options[];
-extern bool no_fp, no_unreachable, retpoline, module, is_coverage, no_kpatch;
+extern bool no_fp, no_unreachable, retpoline, module, is_coverage, is_kpatch;
 
 extern int cmd_check(int argc, const char **argv);
 extern int cmd_coverage(int argc, const char **argv);

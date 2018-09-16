@@ -104,7 +104,7 @@ static int validate_functions(struct objtool_file *file)
 		if (!(sec->sh.sh_flags & SHF_EXECINSTR))
 			continue;
 
-		if (!no_kpatch && !strstr(sec->name, "kpatch"))
+		if (is_kpatch && !strstr(sec->name, "kpatch"))
 			continue;
 
 		sec_for_each_insn(file, sec, insn) {

@@ -1,4 +1,5 @@
 
+CFLAGS += -g
 CPPFLAGS += -Ilibcare/src
 LDLIBS += $(shell pkg-config --libs libunwind libunwind-ptrace)
 

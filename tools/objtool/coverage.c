@@ -94,11 +94,17 @@ static int validate_functions(struct objtool_file *file)
 	struct instruction *insn;
 	int ret;
 	char buf[1024];
-	size_t n;
+	const char *p;
+	ssize_t n;
+
+	p = objname;
 
 	n = readlink(objname, buf, sizeof(buf));
-	buf[n] = '\0';
-	printf("# objname=%s\n", basename(buf));
+	if (n > 0) {
+		buf[n] = '\0';
+		p = buf;
+	}
+	printf("# objname=%s\n", basename(p));
 
 	for_each_sec(file, sec) {
 		if (!(sec->sh.sh_flags & SHF_EXECINSTR))

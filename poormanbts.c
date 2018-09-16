@@ -46,6 +46,19 @@ static int install_trace_point(kpatch_process_t *child,
 	return 0;
 }
 
+static int qsort_compare(const void *a_, const void *b_)
+{
+	const struct pmb_tracepoint *a = a_;
+	const struct pmb_tracepoint *b = b_;
+
+	if (a->jcc.from < b->jcc.from)
+		return -1;
+	else if (a->jcc.from == b->jcc.from)
+		return 0;
+	else
+		return 1;
+}
+
 static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *tpoints, size_t npoints)
 {
 	int ret = -1;
@@ -75,6 +88,8 @@ static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *
 			goto out;
 		}
 	}
+
+	qsort(tpoints, npoints, sizeof(*tpoints), qsort_compare);
 
 	ret = 0;
 out:
@@ -260,6 +275,19 @@ static void trace_point_execute(int pid, long rip, struct pmb_tracepoint *tpoint
 	}
 }
 
+static int bsearch_compare(const void *key, const void *mem)
+{
+	long addr = (long) key;
+	const struct pmb_tracepoint *p = mem;
+
+	if (addr < p->jcc.from)
+		return -1;
+	else if (addr == p->jcc.from)
+		return 0;
+	else
+		return 1;
+}
+
 static int trace_process(kpatch_process_t *child,
 			 struct pmb_tracepoint *tpoints,
 			 size_t npoints)
@@ -267,6 +295,7 @@ static int trace_process(kpatch_process_t *child,
 	int pid;
 	long rv;
 	size_t i;
+	struct pmb_tracepoint *p;
 	
 	while (1) {
 		pid = kpatch_process_execute_until_stop(child);
@@ -283,13 +312,11 @@ static int trace_process(kpatch_process_t *child,
 		}
 		rv--;
 
-		for (i = 0; i < npoints; i++) {
-			if (rv == tpoints[i].jcc.from) {
-				trace_point_execute(pid, rv, &tpoints[i]);
-				break;
-			}
-		}
-		if (i == npoints) {
+		p = bsearch((void *)rv, tpoints, npoints, sizeof(*p),
+			    bsearch_compare);
+		if (p) {
+			trace_point_execute(pid, rv, p);
+		} else {
 			printf("Unexpected stop at %lx\n", rv);
 		}
 	}

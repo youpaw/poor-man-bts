@@ -73,6 +73,10 @@ static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *
 			objname = p->objname;
 
 			obj = kpatch_process_get_obj_by_regex(child, objname);
+			if (!obj) {
+				printf("can't find object %s\n", objname);
+				goto out;
+			}
 			obj_load_addr = obj->load_offset;
 			printf("objname = %s, load_addr = %lx\n",
 			       objname, obj_load_addr);

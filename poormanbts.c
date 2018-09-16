@@ -21,7 +21,8 @@
 #include "eflags.h"
 #include "common.h"
 
-static int install_trace_point(kpatch_process_t *child, struct tracepoint *tpoint)
+static int install_trace_point(kpatch_process_t *child,
+			       struct pmb_tracepoint *tpoint)
 {
 	int rv;
 	static char bkpnt_insn[] = { 0xcc };
@@ -45,11 +46,10 @@ static int install_trace_point(kpatch_process_t *child, struct tracepoint *tpoin
 	return 0;
 }
 
-static int install_trace_points(kpatch_process_t *child, struct tracepoint *tpoints, size_t npoints)
+static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *tpoints, size_t npoints)
 {
-	int memfd = child->memfd, ret = -1;
-	char path[1024];
-	struct tracepoint *p;
+	int ret = -1;
+	struct pmb_tracepoint *p;
 	size_t i;
 
 	for (i = 0, p = tpoints; i < npoints; i++, p++) {
@@ -106,7 +106,7 @@ unsigned long reg_to_offset[] = {
 
 
 
-static bool trace_point_check_condition(int pid, struct tracepoint *tpoint)
+static bool trace_point_check_condition(int pid, struct pmb_tracepoint *tpoint)
 {
 	unsigned long eflags;
 
@@ -171,7 +171,7 @@ static bool trace_point_check_condition(int pid, struct tracepoint *tpoint)
 	}
 }
 
-static long trace_point_resolve_to(int pid, long rip, struct tracepoint *tpoint)
+static long trace_point_resolve_to(int pid, long rip, struct pmb_tracepoint *tpoint)
 {
 	bool is_ref = tpoint->jcc.dynamic_reg & JUMP_OP_DYNAMIC_REG_REF;
 	bool is_sib = tpoint->jcc.dynamic_sib_mult; 
@@ -200,7 +200,7 @@ static long trace_point_resolve_to(int pid, long rip, struct tracepoint *tpoint)
 	abort();
 }
 
-static void trace_point_execute(int pid, long rip, struct tracepoint *tpoint)
+static void trace_point_execute(int pid, long rip, struct pmb_tracepoint *tpoint)
 {
 	long rv;
 
@@ -220,7 +220,7 @@ static void trace_point_execute(int pid, long rip, struct tracepoint *tpoint)
 }
 
 static int trace_process(kpatch_process_t *child,
-			 struct tracepoint *tpoints,
+			 struct pmb_tracepoint *tpoints,
 			 size_t npoints)
 {
 	int pid;
@@ -258,7 +258,7 @@ static int trace_process(kpatch_process_t *child,
 
 int main(int argc, char * const argv[])
 {
-	struct tracepoint *tpoints;
+	struct pmb_tracepoint *tpoints;
 	size_t npoints;
 	int ret;
 	int pid;

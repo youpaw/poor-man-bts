@@ -18,13 +18,13 @@ struct jump_op {
 	unsigned int dynamic_disp32;
 };
 
-struct tracepoint {
+struct pmb_tracepoint {
 	struct jump_op jcc;
 	unsigned char orig[1];
 };
 
 int jump_op_read_input_file(const char *filename,
-			    struct tracepoint **points,
+			    struct pmb_tracepoint **points,
 			    size_t *npoints);
 
 #endif /* __COMMON_H__ */

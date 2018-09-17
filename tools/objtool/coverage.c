@@ -61,11 +61,9 @@ static int validate_functions(struct objtool_file *file)
 			case INSN_JUMP_CONDITIONAL:
 			case INSN_JUMP_UNCONDITIONAL:
 			case INSN_JUMP_DYNAMIC:
-#if 0
 			case INSN_CALL:
 			case INSN_CALL_DYNAMIC:
-			case INSN_RETURN:
-#endif
+			//case INSN_RETURN:
 				break;
 			default:
 				continue;

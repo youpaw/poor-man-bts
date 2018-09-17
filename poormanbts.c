@@ -154,8 +154,19 @@ unsigned long reg_to_offset[] = {
 	[5]	=	REG(rbp),
 	[6]	=	REG(rsi),
 	[7]	=	REG(rdi),
+
+#define	REG2(x)	[x]	=	REG(r ## x)
+	REG2(8),
+	REG2(9),
+	REG2(10),
+	REG2(11),
+	REG2(12),
+	REG2(13),
+	REG2(14),
+	REG2(15),
 	[32]	=	REG(rip),
 #undef REG
+#undef REG2
 };
 
 

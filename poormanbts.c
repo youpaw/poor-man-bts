@@ -26,7 +26,7 @@ static int install_trace_point(kpatch_process_t *child,
 {
 	int rv;
 	static char bkpnt_insn[] = { 0xcc };
-	long dst = tpoint->jcc.from;
+	long dst = tpoint->branch.from;
 
 	rv = kpatch_process_mem_read(child,
 				     dst,
@@ -51,20 +51,21 @@ static int qsort_compare(const void *a_, const void *b_)
 	const struct pmb_tracepoint *a = a_;
 	const struct pmb_tracepoint *b = b_;
 
-	if (a->jcc.from < b->jcc.from)
+	if (a->branch.from < b->branch.from)
 		return -1;
-	else if (a->jcc.from == b->jcc.from)
+	else if (a->branch.from == b->branch.from)
 		return 0;
 	else
 		return 1;
 }
+
+const char *objname = NULL;
 
 static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *tpoints, size_t npoints)
 {
 	int ret = -1;
 	struct pmb_tracepoint *p;
 	size_t i;
-	const char *objname = NULL;
 	long obj_load_addr = 0;
 	kpatch_object_file_t *obj;
 
@@ -82,13 +83,12 @@ static int install_trace_points(kpatch_process_t *child, struct pmb_tracepoint *
 			       objname, obj_load_addr);
 		}
 
-		p->jcc.from += obj_load_addr;
-		p->jcc.to += obj_load_addr;
+		p->branch.from += obj_load_addr;
 
 		ret = install_trace_point(child, p);
 		if (ret < 0) {
 			printf("Can't install tracepoint at %lx\n",
-			       p->jcc.from);
+			       p->branch.from);
 			goto out;
 		}
 	}
@@ -160,14 +160,16 @@ unsigned long reg_to_offset[] = {
 
 
 
-static bool trace_point_check_condition(int pid, struct pmb_tracepoint *tpoint)
+static bool trace_point_check_condition(struct pmb_tracepoint *tpoint,
+					kpatch_process_t *child,
+					int pid)
 {
 	unsigned long eflags;
 
 	eflags = ptrace(PTRACE_PEEKUSER, pid, offsetof(struct user_regs_struct, eflags), NULL);
 
 #define	FLAG(x)	(eflags & X86_EFLAGS_ ## x)
-	switch (tpoint->jcc.opcode) {
+	switch (tpoint->branch.opcode) {
 	case	0x77: /* ja or jnbe */
 		return	!FLAG(CF) && !FLAG(ZF);
 
@@ -226,19 +228,21 @@ static bool trace_point_check_condition(int pid, struct pmb_tracepoint *tpoint)
 		/* unconditional jumps */
 		return true;
 	default:
-		printf("unknown opcode %x\n", tpoint->jcc.opcode);
+		printf("unknown opcode %x\n", tpoint->branch.opcode);
 		abort();
 	}
 }
 
-static long trace_point_resolve_to(int pid, long rip, struct pmb_tracepoint *tpoint)
+static long trace_point_resolve_to(struct pmb_tracepoint *tpoint,
+				   kpatch_process_t *child,
+				   int pid, long rip)
 {
-	bool is_ref = tpoint->jcc.dynamic_reg & JUMP_OP_DYNAMIC_REG_REF;
-	bool is_sib = tpoint->jcc.dynamic_sib_mult; 
-	int reg = tpoint->jcc.dynamic_reg & ~JUMP_OP_DYNAMIC_REG_REF;
+	bool is_ref = tpoint->branch.dynamic_reg & JUMP_OP_DYNAMIC_REG_REF;
+	bool is_sib = tpoint->branch.dynamic_sib_mult;
+	int reg = tpoint->branch.dynamic_reg & ~JUMP_OP_DYNAMIC_REG_REF;
 
-	if (tpoint->jcc.opcode != JUMP_OP_OPCODE_DYNAMIC) {
-		return tpoint->jcc.to;
+	if (tpoint->branch.opcode != JUMP_OP_OPCODE_DYNAMIC) {
+		return tpoint->branch.to;
 	}
 
 	if (!is_ref) {
@@ -252,23 +256,60 @@ static long trace_point_resolve_to(int pid, long rip, struct pmb_tracepoint *tpo
 			off = rip;
 		else
 			off = ptrace(PTRACE_PEEKUSER, pid, reg_to_offset[reg], NULL);
-		off += tpoint->jcc.dynamic_disp32;
+		off += tpoint->branch.dynamic_disp32;
 		return ptrace(PTRACE_PEEKDATA, pid, off, NULL);
 	}
 
-	printf("BROKEN!\n");
+	printf("Not implemented!\n");
 	abort();
 }
 
-static void trace_point_execute(int pid, long rip, struct pmb_tracepoint *tpoint)
+static int trace_point_read_branch_op(struct pmb_tracepoint *tpoint,
+				      kpatch_process_t *child,
+				      int pid)
+{
+	char buf[16];
+	int ret, i;
+
+	if (tpoint->branch.opcode)
+		return 0;
+
+	ret = kpatch_process_mem_read(child,
+				      tpoint->branch.from,
+				      buf,
+				      tpoint->branch.len);
+	if (ret < 0) {
+		kplogerror("kpatch_process_mem_read");
+		return -1;
+	}
+
+	/* restore original part of the instruction */
+	memcpy(buf, tpoint->orig, sizeof(tpoint->orig));
+
+	ret = branch_op_decode(&tpoint->branch, buf, tpoint->branch.len);
+	if (ret < 0) {
+		kperr("branch_op_decode");
+		return -1;
+	}
+
+	return 0;
+}
+
+/* Should pass ptrace_ctx instead */
+static void trace_point_execute(struct pmb_tracepoint *tpoint,
+				kpatch_process_t *child, int pid, long rip)
 {
 	long rv;
 
-	rip += tpoint->jcc.len;
-	if (trace_point_check_condition(pid, tpoint))
-		rip = trace_point_resolve_to(pid, rip, tpoint);
+	rv = trace_point_read_branch_op(tpoint, child, pid);
+	if (rv < 0)
+		return;
 
-	printf("from = %lx, to = %lx\n", tpoint->jcc.from, rip);
+	rip += tpoint->branch.len;
+	if (trace_point_check_condition(tpoint, child, pid))
+		rip = trace_point_resolve_to(tpoint, child, pid, rip);
+
+	printf("from = %lx, to = %lx\n", tpoint->branch.from, rip);
 
 	rv = ptrace(PTRACE_POKEUSER, pid,
 		    offsetof(struct user_regs_struct, rip),
@@ -284,9 +325,9 @@ static int bsearch_compare(const void *key, const void *mem)
 	long addr = (long) key;
 	const struct pmb_tracepoint *p = mem;
 
-	if (addr < p->jcc.from)
+	if (addr < p->branch.from)
 		return -1;
-	else if (addr == p->jcc.from)
+	else if (addr == p->branch.from)
 		return 0;
 	else
 		return 1;
@@ -319,7 +360,7 @@ static int trace_process(kpatch_process_t *child,
 		p = bsearch((void *)rv, tpoints, npoints, sizeof(*p),
 			    bsearch_compare);
 		if (p) {
-			trace_point_execute(pid, rv, p);
+			trace_point_execute(p, child, pid, rv);
 		} else {
 			printf("Unexpected stop at %lx\n", rv);
 		}
@@ -336,7 +377,7 @@ int main(int argc, char * const argv[])
 	int pid;
 	kpatch_process_t child;
 
-	ret = jump_op_read_input_file(argv[1], &tpoints, &npoints);
+	ret = branch_op_read_input_file(argv[1], &tpoints, &npoints);
 	if (ret < 0)
 		return -1;
 

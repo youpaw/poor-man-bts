@@ -2,9 +2,29 @@
 #ifndef __COMMON_H__
 #define __COMMON_H__
 
-struct jump_op {
+#include <asm/insn.h>
+
+
+#ifndef INSN_LAST
+# define INSN_JUMP_CONDITIONAL	1
+# define INSN_JUMP_UNCONDITIONAL	2
+# define INSN_JUMP_DYNAMIC	3
+# define INSN_CALL		4
+# define INSN_CALL_DYNAMIC	5
+# define INSN_RETURN		6
+# define INSN_CONTEXT_SWITCH	7
+# define INSN_STACK		8
+# define INSN_BUG		9
+# define INSN_NOP		10
+# define INSN_OTHER		11
+# define INSN_LAST		INSN_OTHER
+#endif /* INSN_LAST */
+
+
+struct branch_op {
 #define JUMP_OP_OPCODE_DYNAMIC	0xff
 	unsigned int opcode;
+	unsigned int type;
 
 	unsigned long from;
 	unsigned int len;
@@ -21,12 +41,16 @@ struct jump_op {
 struct pmb_tracepoint {
 	const char *objname;
 
-	struct jump_op jcc;
+	struct branch_op branch;
 	unsigned char orig[1];
 };
 
-int jump_op_read_input_file(const char *filename,
-			    struct pmb_tracepoint **points,
-			    size_t *npoints);
+int branch_op_decode(struct branch_op *branch,
+		     const char *buf,
+		     size_t size);
+
+int branch_op_read_input_file(const char *filename,
+			      struct pmb_tracepoint **points,
+			      size_t *npoints);
 
 #endif /* __COMMON_H__ */

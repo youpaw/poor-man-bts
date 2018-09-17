@@ -72,7 +72,6 @@ struct instruction *find_insn(struct objtool_file *file,
 				      sec->len - offset,
 				      &insn->len, &insn->type,
 				      &insn->immediate,
-				      &insn->jcc,
 				      &insn->stack_op);
 	if (ret)
 		goto err;
@@ -338,7 +337,6 @@ static int decode_instructions(struct objtool_file *file)
 						      sec->len - offset,
 						      &insn->len, &insn->type,
 						      &insn->immediate,
-						      &insn->jcc,
 						      &insn->stack_op);
 			if (ret)
 				goto err;

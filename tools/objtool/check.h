@@ -51,7 +51,6 @@ struct instruction {
 	struct instruction *first_jump_src;
 	struct list_head alts;
 	struct symbol *func;
-	struct jump_op jcc;
 	struct stack_op stack_op;
 	struct insn_state state;
 	struct orc_entry orc;

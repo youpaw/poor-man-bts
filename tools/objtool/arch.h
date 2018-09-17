@@ -70,24 +70,12 @@ struct stack_op {
 	struct op_src src;
 };
 
-#define JUMP_OP_OPCODE_DYNAMIC	0xff
-#define JUMP_OP_DYNAMIC_REG_REF	0x80
-struct jump_op {
-	unsigned char opcode; /* 0xff for dynamic jump */
-
-	unsigned char dynamic_reg; /* has 0x80 for memref */
-	unsigned char dynamic_sib_mult; /* zero for no sib */
-	unsigned char dynamic_sib_reg;
-	unsigned int dynamic_disp32;
-};
-
 void arch_initial_func_cfi_state(struct cfi_state *state);
 
 int arch_decode_instruction(struct elf *elf, struct section *sec,
 			    unsigned long offset, unsigned int maxlen,
 			    unsigned int *len, unsigned char *type,
-			    unsigned long *immediate, struct jump_op *jcc,
-			    struct stack_op *op);
+			    unsigned long *immediate, struct stack_op *op);
 
 bool arch_callee_saved_reg(unsigned char reg);
 

@@ -31,63 +31,6 @@
 #include <linux/hashtable.h>
 #include <linux/kernel.h>
 
-static int print_jump_instruction_dynamic(struct section *sec,
-					  struct instruction *insn)
-{
-	bool is_ref = insn->jcc.dynamic_reg & JUMP_OP_DYNAMIC_REG_REF;
-	bool is_sib = insn->jcc.dynamic_sib_mult;
-	unsigned char reg = insn->jcc.dynamic_reg & ~JUMP_OP_DYNAMIC_REG_REF;
-
-	if (insn->jcc.opcode != JUMP_OP_OPCODE_DYNAMIC) {
-		WARN("dynamic jump with opcode != %x", JUMP_OP_OPCODE_DYNAMIC);
-		return -1;
-	}
-
-	if (!is_ref) {
-		printf("*%d", insn->jcc.dynamic_reg);
-		return 0;
-	}
-
-	if (!is_sib) {
-		printf("*0x%x(%d)", insn->jcc.dynamic_disp32, reg);
-		return 0;
-	}
-
-	printf("*0x%x(%d, %d, %d)",
-	       insn->jcc.dynamic_disp32,
-	       reg,
-	       insn->jcc.dynamic_sib_reg,
-	       insn->jcc.dynamic_sib_mult);
-
-	return 0;
-}
-
-static int print_jump_instruction(struct section *sec,
-				  struct instruction *insn)
-{
-	if (insn->jump_dest == NULL &&
-	    insn->type != INSN_JUMP_DYNAMIC)
-		return 0;
-
-	printf("0x%x\t0x%016lx+0x%08x\t",
-	       insn->jcc.opcode,
-	       sec->sh.sh_addr + insn->offset,
-	       insn->len);
-
-	if (insn->jump_dest) {
-		struct instruction *dest = insn->jump_dest;
-
-		printf("0x%016lx\t", dest->sec->sh.sh_addr + dest->offset);
-	} else if (insn->type == INSN_JUMP_DYNAMIC) {
-		print_jump_instruction_dynamic(sec, insn);
-	} else {
-		return -1;
-	}
-
-	printf("\n");
-	return 0;
-}
-
 static int validate_functions(struct objtool_file *file)
 {
 	struct section *sec;
@@ -118,14 +61,19 @@ static int validate_functions(struct objtool_file *file)
 			case INSN_JUMP_CONDITIONAL:
 			case INSN_JUMP_UNCONDITIONAL:
 			case INSN_JUMP_DYNAMIC:
+#if 0
+			case INSN_CALL:
+			case INSN_CALL_DYNAMIC:
+			case INSN_RETURN:
+#endif
 				break;
 			default:
 				continue;
 			}
 
-			ret = print_jump_instruction(sec, insn);
-			if (ret < 0)
-				return ret;
+			printf("0x%lx+0x%x\n",
+			       sec->sh.sh_addr + insn->offset,
+			       insn->len);
 		}
 	}
 

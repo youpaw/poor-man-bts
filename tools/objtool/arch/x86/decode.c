@@ -81,8 +81,7 @@ bool arch_callee_saved_reg(unsigned char reg)
 int arch_decode_instruction(struct elf *elf, struct section *sec,
 			    unsigned long offset, unsigned int maxlen,
 			    unsigned int *len, unsigned char *type,
-			    unsigned long *immediate, struct jump_op *jcc,
-			    struct stack_op *op)
+			    unsigned long *immediate, struct stack_op *op)
 {
 	struct insn insn;
 	int x86_64, sign;
@@ -174,7 +173,6 @@ int arch_decode_instruction(struct elf *elf, struct section *sec,
 
 	case 0x70 ... 0x7f:
 		*type = INSN_JUMP_CONDITIONAL;
-		jcc->opcode = op1;
 		break;
 
 	case 0x81:
@@ -374,7 +372,6 @@ int arch_decode_instruction(struct elf *elf, struct section *sec,
 		if (op2 >= 0x80 && op2 <= 0x8f) {
 
 			*type = INSN_JUMP_CONDITIONAL;
-			jcc->opcode = op2 - 0x10;
 
 		} else if (op2 == 0x05 || op2 == 0x07 || op2 == 0x34 ||
 			   op2 == 0x35) {
@@ -425,13 +422,11 @@ int arch_decode_instruction(struct elf *elf, struct section *sec,
 	case 0xe3:
 		/* jecxz/jrcxz */
 		*type = INSN_JUMP_CONDITIONAL;
-		jcc->opcode = op1;
 		break;
 
 	case 0xe9:
 	case 0xeb:
 		*type = INSN_JUMP_UNCONDITIONAL;
-		jcc->opcode = op1;
 		break;
 
 	case 0xc2:
@@ -454,27 +449,11 @@ int arch_decode_instruction(struct elf *elf, struct section *sec,
 
 			*type = INSN_CALL_DYNAMIC;
 
-		else if (modrm_reg == 4) {
+		else if (modrm_reg == 4)
 
 			*type = INSN_JUMP_DYNAMIC;
-			jcc->opcode = op1;
-			jcc->dynamic_reg = modrm_rm + (rex_b << 3);
 
-			if (modrm_mod != 0x3) { /* is mem ref */
-				if (modrm_mod == 0 && modrm_rm == 0x5) { /* is RIP relative */
-					jcc->dynamic_reg = 0x20;
-				} else if (modrm_rm == 0x4) { /* is sib ref */
-					jcc->dynamic_reg = X86_SIB_BASE(sib) + (rex_b << 3);
-					jcc->dynamic_sib_reg  = X86_SIB_INDEX(sib) + (rex_x << 3);
-					jcc->dynamic_sib_mult = 1 << X86_SIB_SCALE(sib);
-				}
-
-				jcc->dynamic_reg |= JUMP_OP_DYNAMIC_REG_REF;
-			}
-
-			jcc->dynamic_disp32 = insn.displacement.value;
-
-		} else if (modrm_reg == 5)
+		else if (modrm_reg == 5)
 
 			/* jmpf */
 			*type = INSN_CONTEXT_SWITCH;

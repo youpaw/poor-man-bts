@@ -173,7 +173,7 @@ static int trace_point_read_branch_op(struct pmb_tracepoint *tpoint,
 				      kpatch_process_t *child,
 				      int pid)
 {
-	char buf[16];
+	char buf[16], *pbuf = buf;
 	int ret, i;
 
 	if (tpoint->branch.opcode)
@@ -191,9 +191,9 @@ static int trace_point_read_branch_op(struct pmb_tracepoint *tpoint,
 	/* restore original part of the instruction */
 	memcpy(buf, tpoint->orig, sizeof(tpoint->orig));
 
-	ret = branch_op_decode(&tpoint->branch, buf, tpoint->branch.len);
-	if (ret < 0) {
-		kperr("branch_op_decode");
+	ret = branch_op_decode(&tpoint->branch, (const char **)&pbuf, tpoint->branch.len);
+	if (ret <= 0) {
+		kperr("branch_op_decode: %lx", tpoint->branch.from);
 		return -1;
 	}
 

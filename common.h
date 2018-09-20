@@ -47,7 +47,7 @@ struct pmb_tracepoint {
 };
 
 int branch_op_decode(struct branch_op *branch,
-		     const char *buf,
+		     const char **pbuf,
 		     size_t size);
 
 int branch_op_read_input_file(const char *filename,

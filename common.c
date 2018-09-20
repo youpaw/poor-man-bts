@@ -167,7 +167,9 @@ branch_op_resolve_to(struct branch_op *branch,
 
 
 #ifndef __KERNEL__
-int branch_op_decode(struct branch_op *branch, const char *buf, size_t size)
+/* returns -1 on error, 1 when branch op is found, 0 otherwise.
+ * updates pbuf accordingly, may be used to got through functions */
+int branch_op_decode(struct branch_op *branch, const char **pbuf, size_t size)
 {
 	struct insn insn;
 
@@ -178,14 +180,15 @@ int branch_op_decode(struct branch_op *branch, const char *buf, size_t size)
 
 	/* Parsed already! */
 	if (branch->opcode != 0)
-		return 0;
+		return 1;
 
-	insn_init(&insn, buf, size, /* always x86_64 */1);
+	insn_init(&insn, *pbuf, size, /* always x86_64 */1);
 	insn_get_length(&insn);
 
-	if (!insn_complete(&insn)) {
+	if (!insn_complete(&insn))
 		return -1;
-	}
+
+	(*pbuf) += insn.length;
 
 	op1 = insn.opcode.bytes[0];
 	op2 = insn.opcode.bytes[1];
@@ -211,6 +214,7 @@ int branch_op_decode(struct branch_op *branch, const char *buf, size_t size)
 	/* defaults */
 	branch->to = branch->from + insn.length + insn.immediate.value;
 	branch->opcode = op1;
+	branch->len = insn.length;
 
 	switch (op1) {
 	case 0xc2: /* return */
@@ -243,14 +247,16 @@ int branch_op_decode(struct branch_op *branch, const char *buf, size_t size)
 			branch->type = INSN_JUMP_DYNAMIC;
 			goto dynamic_regs;
 		}
+		/* fallthrough */
 	default:
-		branch->to = 0;
-		return -1;
+		branch->opcode = 0;
+		return 0;
 	}
 
-	return 0;
+	return 1;
 
 dynamic_regs:
+	branch->to = 0;
 	branch->dynamic_reg = modrm_rm + (rex_b << 3);
 
 	if (modrm_mod != 0x3) { /* is mem ref */
@@ -266,7 +272,7 @@ dynamic_regs:
 	}
 
 	branch->dynamic_disp32 = insn.displacement.value;
-	return 0;
+	return 1;
 }
 
 int branch_op_read_input_file(const char *filename,

@@ -29,3 +29,7 @@ kmod: FORCE
 	make -C kmod
 
 FORCE:
+
+test: poormanbts objtool
+	./objtool coverage ./objtool > output.test
+	./poormanbts ./output.test ./objtool

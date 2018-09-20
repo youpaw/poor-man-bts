@@ -206,7 +206,7 @@ poormanbts_kprobe_post_handler(struct kprobe *probe,
 }
 
 static void
-poormanbts_tracepoint_remove(struct pmb_tracepoint *tracepoint)
+poormanbts_tracepoint_free(struct pmb_tracepoint *tracepoint)
 {
 	struct rb_node *node = tracepoint->branches.rb_node;
 
@@ -245,34 +245,11 @@ free:
 	kmem_cache_free(kmem_tracepoint, tracepoint);
 }
 
-static ssize_t
-poormanbts_proc_handler_write(struct file *file,
-			      const char __user *buffer,
-			      size_t count, loff_t *ppos)
+static int
+poormanbts_tracepoint_add(long addr, long size, long to)
 {
-	char buf[256], *p;
-	long addr, size;
-	int ret;
 	struct pmb_tracepoint *tracepoint;
-
-	if (copy_from_user(buf, buffer, min(count, sizeof(buf))))
-		return -EFAULT;
-
-	buf[count] = '\0';
-	p = strchr(buf, '\n');
-	if (p)
-		*p = '\0';
-	count = strlen(buf) + 1;
-
-	p = buf;
-	if (*p == '-')
-		p++;
-
-	if (sscanf(p, "0x%lx+0x%lx", &addr, &size) != 2)
-		return -EIO;
-
-	if (*buf == '-')
-		goto delete_entry;
+	int ret;
 
 	tracepoint = kmem_cache_alloc(kmem_tracepoint, GFP_KERNEL);
 	if (tracepoint == NULL)
@@ -281,6 +258,7 @@ poormanbts_proc_handler_write(struct file *file,
 	memset(tracepoint, 0, sizeof(*tracepoint));
 
 	tracepoint->len = size;
+	tracepoint->to = to;
 	tracepoint->probe.pre_handler = poormanbts_kprobe_pre_handler;
 	tracepoint->probe.post_handler = poormanbts_kprobe_post_handler;
 	tracepoint->probe.addr = (void *)addr;
@@ -294,17 +272,75 @@ poormanbts_proc_handler_write(struct file *file,
 
 	list_add(&tracepoint->list, &tracepoints);
 
-	return count;
+	return 0;
+}
 
-delete_entry:
+static int
+poormanbts_tracepoint_remove(long addr, long size)
+{
+	struct pmb_tracepoint *tracepoint;
+
 	list_for_each_entry(tracepoint, &tracepoints, list) {
 		if (tracepoint->probe.addr == (void *)addr &&
 		    tracepoint->len == size) {
-			poormanbts_tracepoint_remove(tracepoint);
-			return count;
+			poormanbts_tracepoint_free(tracepoint);
+			return 0;
 		}
 	}
+
 	return -ENOENT;
+}
+
+static ssize_t
+poormanbts_handle_single_tracepoint(const char *buf, size_t count)
+{
+	const char *p;
+	long addr, size;
+	int ret;
+
+	p = buf;
+	if (*p == '-')
+		p++;
+
+	if (sscanf(p, "0x%lx+0x%lx", &addr, &size) != 2)
+		return -EIO;
+
+	if (*buf == '-')
+		goto delete_entry;
+
+	ret = poormanbts_tracepoint_add(addr, size, /*to*/0);
+	if (ret)
+		return ret;
+
+	return count;
+
+delete_entry:
+	ret = poormanbts_tracepoint_remove(addr, size);
+	if (ret)
+		return ret;
+	return count;
+}
+
+static ssize_t
+poormanbts_proc_handler_write(struct file *file,
+			      const char __user *buffer,
+			      size_t count, loff_t *ppos)
+{
+	char buf[256], *p;
+	ssize_t ret;
+
+	if (copy_from_user(buf, buffer, min(count, sizeof(buf))))
+		return -EFAULT;
+
+	buf[count] = '\0';
+	p = strchr(buf, '\n');
+	if (p)
+		*p = '\0';
+	count = strlen(buf) + 1;
+
+	ret = poormanbts_handle_single_tracepoint(buf, count);
+
+	return ret;
 }
 
 static const struct file_operations fops = {
@@ -344,7 +380,7 @@ void __exit exit_poormanbts(void)
 	proc_remove(proc_poormanbts);
 
 	list_for_each_entry_safe(tracepoint, tmp, &tracepoints, list)
-		poormanbts_tracepoint_remove(tracepoint);
+		poormanbts_tracepoint_free(tracepoint);
 
 	if (kmem_tracepoint)
 		kmem_cache_destroy(kmem_tracepoint);

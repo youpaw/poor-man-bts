@@ -39,20 +39,10 @@ struct branch_op {
 	unsigned int dynamic_disp32;
 };
 
-struct pmb_tracepoint {
-	const char *objname;
-
-	struct branch_op branch;
-	unsigned char orig[1];
-};
-
 int branch_op_decode(struct branch_op *branch,
 		     const char **pbuf,
 		     size_t size);
 
-int branch_op_read_input_file(const char *filename,
-			      struct pmb_tracepoint **points,
-			      size_t *npoints);
 long
 branch_op_resolve_to(struct branch_op *branch,
 		     long (*read_reg)(int reg, void *arg),
@@ -63,5 +53,18 @@ int
 branch_op_check_condition(struct branch_op *branch,
 			  unsigned long eflags,
 			  unsigned long rcx);
+
+#ifndef __KERNEL__
+struct pmb_tracepoint {
+	const char *objname;
+
+	struct branch_op branch;
+	unsigned char orig[1];
+};
+
+int branch_op_read_input_file(const char *filename,
+			      struct pmb_tracepoint **points,
+			      size_t *npoints);
+#endif
 
 #endif /* __COMMON_H__ */

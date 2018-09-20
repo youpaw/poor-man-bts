@@ -5,63 +5,19 @@
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
+
+#include "eflags.h"
 #else /* ifndef __KERNEL__ */
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/gfp.h>
 #endif /* else ifndef __KERNEL__ */
 
-#include "eflags.h"
 #include "common.h"
 
 #ifdef __KERNEL__
 #define strdup(x)	kstrdup(x, GFP_KERNEL)
 #endif
-
-static int branch_op_parse(struct branch_op *branch,
-			   const char *in)
-{
-	int ret;
-
-	memset(branch, 0, sizeof(*branch));
-	ret = sscanf(in, "0x%lx+0x%x", &branch->from, &branch->len);
-
-	if (ret != 2)
-		return -1;
-
-	return 0;
-}
-
-int parse_trace_point_line(const char *buf,
-			   struct pmb_tracepoint *point)
-{
-	char *p;
-	const char objname_str[] = "objname=";
-	const size_t objname_str_len = sizeof(objname_str) - 1;
-	static char *objname;
-	int ret;
-
-	p = strstr(buf, objname_str);
-	if (p) {
-		p += objname_str_len;
-		objname = strdup(p);
-	}
-
-	p = strchr(buf, '#');
-	if (p == buf)
-		return 0;
-
-	if (p)
-		*p = '\0';
-
-	ret = branch_op_parse(&point->branch, buf);
-	if (ret < 0) {
-		return -1;
-	}
-	point->objname = objname;
-
-	return 1;
-}
 
 int
 branch_op_check_condition(struct branch_op *branch,
@@ -161,12 +117,13 @@ branch_op_resolve_to(struct branch_op *branch,
 		return read_mem(off, arg);
 	}
 
+#ifndef __KERNEL__
 	errno = -EINVAL;
+#endif
 	return -1;
 }
 
 
-#ifndef __KERNEL__
 /* returns -1 on error, 1 when branch op is found, 0 otherwise.
  * updates pbuf accordingly, may be used to got through functions */
 int branch_op_decode(struct branch_op *branch, const char **pbuf, size_t size)
@@ -274,6 +231,54 @@ dynamic_regs:
 	branch->dynamic_disp32 = insn.displacement.value;
 	return 1;
 }
+
+#ifndef __KERNEL__
+/* TODO(pboldin) these are not so common, move them */
+static int branch_op_parse(struct branch_op *branch,
+			   const char *in)
+{
+	int ret;
+
+	memset(branch, 0, sizeof(*branch));
+	ret = sscanf(in, "0x%lx+0x%x", &branch->from, &branch->len);
+
+	if (ret != 2)
+		return -1;
+
+	return 0;
+}
+
+int parse_trace_point_line(const char *buf,
+			   struct pmb_tracepoint *point)
+{
+	char *p;
+	const char objname_str[] = "objname=";
+	const size_t objname_str_len = sizeof(objname_str) - 1;
+	static char *objname;
+	int ret;
+
+	p = strstr(buf, objname_str);
+	if (p) {
+		p += objname_str_len;
+		objname = strdup(p);
+	}
+
+	p = strchr(buf, '#');
+	if (p == buf)
+		return 0;
+
+	if (p)
+		*p = '\0';
+
+	ret = branch_op_parse(&point->branch, buf);
+	if (ret < 0) {
+		return -1;
+	}
+	point->objname = objname;
+
+	return 1;
+}
+
 
 int branch_op_read_input_file(const char *filename,
 			      struct pmb_tracepoint **points,

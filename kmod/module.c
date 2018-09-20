@@ -288,8 +288,8 @@ poormanbts_proc_handler_write(struct file *file,
 
 	ret = register_kprobe(&tracepoint->probe);
 	if (ret < 0) {
-		kfree(tracepoint);
-		return -EINVAL;
+		kmem_cache_free(kmem_tracepoint, tracepoint);
+		return ret;
 	}
 
 	list_add(&tracepoint->list, &tracepoints);

@@ -1,4 +1,6 @@
 
+#define pr_fmt(fmt)	"poormanbts: " fmt
+
 #include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
@@ -8,6 +10,14 @@
 #include <linux/spinlock.h>
 
 #include <asm/uaccess.h>
+
+
+static LIST_HEAD(tracepoints);
+
+static struct kmem_cache *kmem_tracepoint, *kmem_branch_info;
+
+static struct proc_dir_entry *proc_poormanbts;
+
 
 struct branch_info {
 	unsigned long to;
@@ -22,15 +32,24 @@ struct pmb_tracepoint {
 	struct kprobe probe;
 
 	unsigned int len;
+
 	/* Does this need locking? */
-	struct rb_root branches;
+	union {
+		struct rb_root branches;
+		struct {
+			unsigned long to;
+			unsigned int taken;
+			unsigned int nottaken;
+		};
+	};
 };
 
-static LIST_HEAD(tracepoints);
-
-static struct kmem_cache *kmem_tracepoint, *kmem_branch_info;
-
-static struct proc_dir_entry *proc_poormanbts;
+static inline int
+poormanbts_tracepoint_is_dynamic_jump(struct pmb_tracepoint *tracepoint)
+{
+#define DYNAMIC_JUMP_OPCODE	0xff
+	return tracepoint->probe.opcode == DYNAMIC_JUMP_OPCODE;
+}
 
 static void *
 poormanbts_seq_start(struct seq_file *m,
@@ -63,12 +82,28 @@ poormanbts_seq_show(struct seq_file *m,
 	struct rb_node *node = tracepoint->branches.rb_node;
 
 	if (tracepoint->probe.nmissed) {
-		seq_printf(m, "0x%lx+0x%x->??? %ld 0 0\n",
+		seq_printf(m, "0x%lx+0x%x->??? %ld\n",
 			   (long)tracepoint->probe.addr,
 			   tracepoint->len,
 			   tracepoint->probe.nmissed);
 	}
 
+	if (!poormanbts_tracepoint_is_dynamic_jump(tracepoint)) {
+		seq_printf(m, "0x%lx+0x%x->0x%lx %d\n",
+			   (long)tracepoint->probe.addr,
+			   tracepoint->len,
+			   (long)tracepoint->probe.addr + tracepoint->len,
+			   tracepoint->nottaken);
+
+		seq_printf(m, "0x%lx+0x%x->0x%lx %d\n",
+			   (long)tracepoint->probe.addr,
+			   tracepoint->len,
+			   tracepoint->to,
+			   tracepoint->taken);
+		return 0;
+	}
+
+	/* Dynamic jump */
 	while (node) {
 		struct branch_info *p = rb_entry(node, struct branch_info, node);
 
@@ -105,13 +140,9 @@ poormanbts_kprobe_pre_handler(struct kprobe *probe,
 }
 
 static void
-poormanbts_kprobe_post_handler(struct kprobe *probe,
-			       struct pt_regs *regs,
-			       unsigned long flags)
+poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
+				  long to)
 {
-	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
-	unsigned long to = regs->ip;
-
 	struct rb_root *root = &tracepoint->branches;
 	struct rb_node **new = &root->rb_node, *parent = NULL;
 	struct branch_info *p;
@@ -142,17 +173,48 @@ poormanbts_kprobe_post_handler(struct kprobe *probe,
 		rb_link_node(&p->node, parent, new);
 		rb_insert_color(&p->node, root);
 	}
+}
+
+static void
+poormanbts_kprobe_post_handler(struct kprobe *probe,
+			       struct pt_regs *regs,
+			       unsigned long flags)
+{
+	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
+	unsigned long to = regs->ip;
+
+	if (poormanbts_tracepoint_is_dynamic_jump(tracepoint)) {
+		poormanbts_tracepoint_add_dynamic(tracepoint, to);
+		return;
+	}
+
+	if (to == (long) tracepoint->probe.addr + tracepoint->len) {
+		tracepoint->nottaken++;
+	} else if (tracepoint->to == to) {
+		tracepoint->taken++;
+	} else if (tracepoint->to) {
+		pr_warn("tracepoint->to was %lx -> new %lx\n",
+			tracepoint->to, to);
+		tracepoint->taken = tracepoint->nottaken = 0;
+		tracepoint->to = to;
+	} else /* if (!tracepoint->to) */ {
+		tracepoint->to = to;
+		tracepoint->taken++;
+	}
 
 	return;
 }
 
 static void
-remove_tracepoint(struct pmb_tracepoint *tracepoint)
+poormanbts_tracepoint_remove(struct pmb_tracepoint *tracepoint)
 {
 	struct rb_node *node = tracepoint->branches.rb_node;
 
 	unregister_kprobe(&tracepoint->probe);
 	list_del(&tracepoint->list);
+
+	if (!poormanbts_tracepoint_is_dynamic_jump(tracepoint))
+		goto free;
 
 	while (node) {
 		struct rb_node *parent;
@@ -179,6 +241,7 @@ remove_tracepoint(struct pmb_tracepoint *tracepoint)
 		node = parent;
 	}
 
+free:
 	kmem_cache_free(kmem_tracepoint, tracepoint);
 }
 
@@ -237,7 +300,7 @@ delete_entry:
 	list_for_each_entry(tracepoint, &tracepoints, list) {
 		if (tracepoint->probe.addr == (void *)addr &&
 		    tracepoint->len == size) {
-			remove_tracepoint(tracepoint);
+			poormanbts_tracepoint_remove(tracepoint);
 			return count;
 		}
 	}
@@ -281,7 +344,7 @@ void __exit exit_poormanbts(void)
 	proc_remove(proc_poormanbts);
 
 	list_for_each_entry_safe(tracepoint, tmp, &tracepoints, list)
-		remove_tracepoint(tracepoint);
+		poormanbts_tracepoint_remove(tracepoint);
 
 	if (kmem_tracepoint)
 		kmem_cache_destroy(kmem_tracepoint);

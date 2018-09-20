@@ -12,8 +12,8 @@ kernel module for the BTS-like reports!
 Please note that this is still some alpha-level software. Pull requests are
 welcome!
 
-How to use it
--------------
+Userspace: How to use it
+------------------------
 
 #. Clone it and init submodules::
 
@@ -71,10 +71,36 @@ How to use it
         jmp from = 402499, to = 40249b
         ...
 
+Kernel module: how to use it
+----------------------------
+
+Kernel module is even more magical! Since Linux kernel provides means to
+resolve symbol name into a address and size we will use these to find
+branches there!
+
+
+#. First, build the module::
+
+        $ cd kmod
+        $ make
+        ...
+
+   You should have linux headers installed.
+
+#. Next, insert the module::
+
+        $ sudo insmod ./poormanbts.ko
+
+#. Finally, add a trace point::
+
+        $ echo strlen | sudo tee /proc/poormanbts
+
+#. Enjoy the results::
+
+        $ sudo cat /proc/poormanbts
+
 TODO
 ----
 
 * Introduce single-stepping option. No need to execute any code on our own!
   Just restore original code and go on! (Merge this code with ``libcare``).
-* Write a kernel module with ``kprobes``. Use ``post_handler`` to see where it
-  all got to.

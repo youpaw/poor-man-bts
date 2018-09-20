@@ -11,6 +11,7 @@
 #include <linux/gfp.h>
 #endif /* else ifndef __KERNEL__ */
 
+#include "eflags.h"
 #include "common.h"
 
 #ifdef __KERNEL__
@@ -61,6 +62,109 @@ int parse_trace_point_line(const char *buf,
 
 	return 1;
 }
+
+int
+branch_op_check_condition(struct branch_op *branch,
+			  unsigned long eflags,
+			  unsigned long rcx)
+{
+#define	FLAG(x)	(eflags & X86_EFLAGS_ ## x)
+	switch (branch->opcode) {
+	case	0x77: /* ja or jnbe */
+		return	!FLAG(CF) && !FLAG(ZF);
+
+	case	0x73: /* jae or jnc or jnb */
+		return	!FLAG(CF);
+
+	case	0x72: /* jb or jc or jnae */
+		return	FLAG(CF);
+
+	case	0x76: /* jbe or jna */
+		return	FLAG(CF) || FLAG(ZF);
+
+	case	0x74: /* je or jz */
+		return	FLAG(ZF);
+
+	case	0x7f: /* jg or jnle */
+		return	!FLAG(ZF) && FLAG(SF) == FLAG(OF);
+
+	case	0x7d: /* jge or jnl */
+		return	FLAG(SF) == FLAG(OF);
+
+	case	0x7c: /* jl or jnge */
+		return	FLAG(SF) != FLAG(OF);
+
+	case	0x7e: /* jle or jng */
+		return	FLAG(ZF) || FLAG(SF) != FLAG(OF);
+
+	case	0x75: /* jne or jnz */
+		return	!FLAG(ZF);
+
+	case	0x71: /* jno */
+		return	!FLAG(OF);
+
+	case	0xe3: /* jcxz/jecxz/jrcxz */
+		return !!rcx;
+
+	case	0x7b: /* jnp or jpo */
+		return	!FLAG(PF);
+
+	case	0x79: /* jns */
+		return	!FLAG(SF);
+
+	case	0x7a: /* jp or jpe */
+		return	FLAG(PF);
+
+	case	0x78: /* js */
+		return	FLAG(SF);
+
+	case	0x70: /* jo */
+		return	FLAG(OF);
+
+	case	0xe9:
+	case	0xeb:
+	case	JUMP_OP_OPCODE_DYNAMIC:
+		/* unconditional jumps */
+		return	1;
+	default:
+		return -EINVAL;
+	}
+}
+
+long
+branch_op_resolve_to(struct branch_op *branch,
+		     long (*read_reg)(int reg, void *arg),
+		     long (*read_mem)(long mem, void *arg),
+		     void *arg)
+{
+	int is_ref = branch->dynamic_reg & JUMP_OP_DYNAMIC_REG_REF;
+	int is_sib = branch->dynamic_sib_mult;
+	int reg = branch->dynamic_reg & ~JUMP_OP_DYNAMIC_REG_REF;
+
+	if (branch->opcode != JUMP_OP_OPCODE_DYNAMIC) {
+		return branch->to;
+	}
+
+	if (!is_ref)
+		return read_reg(reg, arg);
+
+	if (!is_sib) {
+		long off;
+		off = read_reg(reg, arg);
+		off += branch->dynamic_disp32;
+		return read_mem(off, arg);
+	} else {
+		long base, index, off;
+		base = read_reg(reg, arg);
+		index = read_reg(branch->dynamic_sib_reg, arg);
+		off = base + index * branch->dynamic_sib_mult;
+		return read_mem(off, arg);
+	}
+
+	errno = -EINVAL;
+	return -1;
+}
+
 
 #ifndef __KERNEL__
 int branch_op_decode(struct branch_op *branch, const char *buf, size_t size)
@@ -151,7 +255,7 @@ dynamic_regs:
 
 	if (modrm_mod != 0x3) { /* is mem ref */
 		if (modrm_mod == 0 && modrm_rm == 0x5) {
-			branch->dynamic_reg = 0x20; /* RIP */
+			branch->dynamic_reg = REG_RIP; /* RIP */
 		} else if (modrm_rm == 0x4) { /* is sib ref */
 			branch->dynamic_reg = X86_SIB_BASE(sib) + (rex_b << 3);
 			branch->dynamic_sib_reg  = X86_SIB_INDEX(sib) + (rex_x << 3);

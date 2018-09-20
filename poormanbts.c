@@ -18,7 +18,6 @@
 #include <kpatch_log.h>
 #include <kpatch_ptrace.h>
 
-#include "eflags.h"
 #include "common.h"
 
 static int install_trace_point(kpatch_process_t *child,
@@ -164,7 +163,7 @@ unsigned long reg_to_offset[] = {
 	REG2(13),
 	REG2(14),
 	REG2(15),
-	[32]	=	REG(rip),
+	[REG_RIP]	=	REG(rip),
 #undef REG
 #undef REG2
 };
@@ -205,110 +204,72 @@ static bool trace_point_check_condition(struct pmb_tracepoint *tpoint,
 					kpatch_process_t *child,
 					int pid)
 {
-	unsigned long eflags;
+	unsigned long eflags, rcx;
+	int ret;
 
-	eflags = ptrace(PTRACE_PEEKUSER, pid, offsetof(struct user_regs_struct, eflags), NULL);
+	eflags = ptrace(PTRACE_PEEKUSER, pid,
+			offsetof(struct user_regs_struct, eflags), NULL);
+	rcx = ptrace(PTRACE_PEEKUSER, pid,
+		     offsetof(struct user_regs_struct, rcx), NULL);
 
-#define	FLAG(x)	(eflags & X86_EFLAGS_ ## x)
-	switch (tpoint->branch.opcode) {
-	case	0x77: /* ja or jnbe */
-		return	!FLAG(CF) && !FLAG(ZF);
-
-	case	0x73: /* jae or jnc or jnb */
-		return	!FLAG(CF);
-
-	case	0x72: /* jb or jc or jnae */
-		return	FLAG(CF);
-
-	case	0x76: /* jbe or jna */
-		return	FLAG(CF) || FLAG(ZF);
-
-	case	0x74: /* je or jz */
-		return	FLAG(ZF);
-
-	case	0x7f: /* jg or jnle */
-		return	!FLAG(ZF) && FLAG(SF) == FLAG(OF);
-
-	case	0x7d: /* jge or jnl */
-		return	FLAG(SF) == FLAG(OF);
-
-	case	0x7c: /* jl or jnge */
-		return	FLAG(SF) != FLAG(OF);
-
-	case	0x7e: /* jle or jng */
-		return	FLAG(ZF) || FLAG(SF) != FLAG(OF);
-
-	case	0x75: /* jne or jnz */
-		return	!FLAG(ZF);
-
-	case	0x71: /* jno */
-		return	!FLAG(OF);
-
-	case	0xe3: /* jcxz/jecxz/jrcxz */
-		return	!!ptrace(PTRACE_PEEKUSER, pid,
-				 offsetof(struct user_regs_struct, rcx), NULL);
-
-	case	0x7b: /* jnp or jpo */
-		return	!FLAG(PF);
-
-	case	0x79: /* jns */
-		return	!FLAG(SF);
-
-	case	0x7a: /* jp or jpe */
-		return	FLAG(PF);
-
-	case	0x78: /* js */
-		return	FLAG(SF);
-
-	case	0x70: /* jo */
-		return	FLAG(OF);
-
-	case	0xe9:
-	case	0xeb:
-	case	JUMP_OP_OPCODE_DYNAMIC:
-		/* unconditional jumps */
-		return true;
-	default:
-		printf("unknown opcode %x\n", tpoint->branch.opcode);
+	ret = branch_op_check_condition(&tpoint->branch, eflags, rcx);
+	if (ret == -EINVAL)
 		abort();
-	}
+
+	return ret;
+}
+
+struct read_args {
+	long rip;
+	int pid;
+};
+
+static long
+poormanbts_read_reg(int reg, void *arg)
+{
+	struct read_args * args = arg;
+	long r;
+
+	if (reg == REG_RIP)
+		return args->rip;
+
+	r = ptrace(PTRACE_PEEKUSER, args->pid, reg_to_offset[reg], NULL);
+	if (r == -1L && errno != 0)
+		abort();
+	return r;
+}
+
+static long
+poormanbts_read_mem(long mem, void *arg)
+{
+	struct read_args * args = arg;
+	long r;
+	r = ptrace(PTRACE_PEEKDATA, args->pid, mem, NULL);
+	if (r == -1L && errno != 0)
+		abort();
+	return r;
 }
 
 static long trace_point_resolve_to(struct pmb_tracepoint *tpoint,
 				   kpatch_process_t *child,
 				   int pid, long rip)
 {
-	bool is_ref = tpoint->branch.dynamic_reg & JUMP_OP_DYNAMIC_REG_REF;
-	bool is_sib = tpoint->branch.dynamic_sib_mult;
-	int reg = tpoint->branch.dynamic_reg & ~JUMP_OP_DYNAMIC_REG_REF;
+	long r;
+	struct read_args args = {
+		.rip = rip,
+		.pid = pid,
+	};
 
-	if (tpoint->branch.opcode != JUMP_OP_OPCODE_DYNAMIC) {
-		return tpoint->branch.to;
+	r = branch_op_resolve_to(&tpoint->branch,
+				 poormanbts_read_reg,
+				 poormanbts_read_mem,
+				 &args);
+	if (r == -1 && errno == -EINVAL) {
+		printf("Not implemented rip = %lx!\n", rip);
+		abort();
 	}
 
-	if (!is_ref) {
-		long off = reg_to_offset[reg];
-		return ptrace(PTRACE_PEEKUSER, pid, off, NULL);
-	}
-
-	if (!is_sib) {
-		long off;
-		if (reg == 32)  /* RIP */
-			off = rip;
-		else
-			off = ptrace(PTRACE_PEEKUSER, pid, reg_to_offset[reg], NULL);
-		off += tpoint->branch.dynamic_disp32;
-		return ptrace(PTRACE_PEEKDATA, pid, off, NULL);
-	} else {
-		long base, index, off;
-		base = ptrace(PTRACE_PEEKUSER, pid, reg_to_offset[reg]);
-		index = ptrace(PTRACE_PEEKUSER, pid, reg_to_offset[tpoint->branch.dynamic_sib_reg]);
-		off = base + index * tpoint->branch.dynamic_sib_mult;
-		return ptrace(PTRACE_PEEKDATA, pid, off, NULL);
-	}
-
-	printf("Not implemented rip = %lx!\n", rip);
-	abort();
+	return r;
 }
 
 static int

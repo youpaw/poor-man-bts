@@ -20,6 +20,7 @@
 # define INSN_LAST		INSN_OTHER
 #endif /* INSN_LAST */
 
+#define REG_RIP	16
 
 struct branch_op {
 #define JUMP_OP_OPCODE_DYNAMIC	0xff
@@ -52,5 +53,15 @@ int branch_op_decode(struct branch_op *branch,
 int branch_op_read_input_file(const char *filename,
 			      struct pmb_tracepoint **points,
 			      size_t *npoints);
+long
+branch_op_resolve_to(struct branch_op *branch,
+		     long (*read_reg)(int reg, void *arg),
+		     long (*read_mem)(long mem, void *arg),
+		     void *arg);
+
+int
+branch_op_check_condition(struct branch_op *branch,
+			  unsigned long eflags,
+			  unsigned long rcx);
 
 #endif /* __COMMON_H__ */

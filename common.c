@@ -174,11 +174,6 @@ int branch_op_decode(struct branch_op *branch, const char **pbuf, size_t size)
 	branch->len = insn.length;
 
 	switch (op1) {
-	case 0xc2: /* return */
-	case 0xc3:
-		branch->type = INSN_RETURN;
-		break;
-
 	case 0xe8: /* call */
 		branch->type = INSN_CALL;
 		break;

@@ -11,6 +11,7 @@
 
 #include <asm/uaccess.h>
 
+#include "common.h"
 
 static LIST_HEAD(tracepoints);
 
@@ -322,6 +323,54 @@ delete_entry:
 }
 
 static ssize_t
+poormanbts_handle_symbol(const char *name, size_t count)
+{
+	unsigned long addr, symbolsize;
+	int ret;
+	const char *buf, *end;
+	char namebuf[256], *p;
+
+	addr = kallsyms_lookup_name(name);
+	if (addr == 0)
+		return -ENOENT;
+
+	sprint_symbol(namebuf, addr);
+	p = strchr(namebuf, '/');
+	if (!p)
+		return -EINVAL;
+
+	*p = 0;
+	p++;
+
+	if (sscanf(p, "%lx", &symbolsize) != 1)
+		return -EINVAL;
+
+	buf = (const char *)addr;
+	end = buf + symbolsize;
+
+	while (buf < end) {
+		struct branch_op branch = {
+			.opcode = 0,
+			.from = (long) buf,
+		};
+		ret = branch_op_decode(&branch, &buf, end - buf);
+		if (ret == -1)
+			return -EINVAL;
+
+		if (!ret)
+			continue;
+
+		ret = poormanbts_tracepoint_add(branch.from,
+						branch.len,
+						branch.to);
+		if (ret < 0)
+			return ret;
+	}
+
+	return count;
+}
+
+static ssize_t
 poormanbts_proc_handler_write(struct file *file,
 			      const char __user *buffer,
 			      size_t count, loff_t *ppos)
@@ -339,6 +388,8 @@ poormanbts_proc_handler_write(struct file *file,
 	count = strlen(buf) + 1;
 
 	ret = poormanbts_handle_single_tracepoint(buf, count);
+	if (ret == -EIO)
+		ret = poormanbts_handle_symbol(buf, count);
 
 	return ret;
 }

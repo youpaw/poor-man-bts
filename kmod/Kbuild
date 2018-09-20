@@ -1,4 +1,9 @@
 
 obj-m := poormanbts.o
 
+poormanbts-y += insn.o
+poormanbts-y += inat.o
 poormanbts-y += module.o
+poormanbts-y += common.o
+
+insn.o: CFLAGS += -I../tools/objtool/arch/x86/include

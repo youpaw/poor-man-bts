@@ -422,40 +422,72 @@ static const struct file_operations fops = {
 };
 
 asm ("\
-my_can_probe_start:\n\
+my_return_one_start:\n\
 	movq	$1, %rax\n\
 	ret\n\
-my_can_probe_end:\n\
+my_return_one_end:\n\
      ");
 
-extern char my_can_probe_start[], my_can_probe_end[];
+extern char my_return_one_start[], my_return_one_end[];
 
 static void *(*my_text_poke)(void *addr, const void *opcode, size_t len);
+
+static size_t orig_sizes;
+static char can_probe_orig[16], kernel_text_address_orig[16];
 
 static void
 do_hack_can_probe(void)
 {
 	unsigned long addr;
 
-	my_text_poke = kallsyms_lookup_name("text_poke");
+	my_text_poke = (void *)kallsyms_lookup_name("text_poke");
 	if (my_text_poke == NULL) {
 		pr_err("can't find text_poke");
 		return;
 	}
+
+	orig_sizes = my_return_one_end - my_return_one_start;
 
 	pr_warn("You are hacking kprobes mechanism. God bless your soul");
 
 	addr = kallsyms_lookup_name("can_probe");
 	if (!addr)
 		pr_err("can't find can_probe");
-	else
-		my_text_poke((void *)addr, my_can_probe_start, my_can_probe_end - my_can_probe_start);
+	else {
+		memcpy(can_probe_orig, (void *)addr, orig_sizes);
+		my_text_poke((void *)addr, my_return_one_start, orig_sizes);
+	}
 
 	addr = kallsyms_lookup_name("kernel_text_address");
 	if (!addr)
 		pr_err("can't find kernel_text_address");
+	else {
+		memcpy(kernel_text_address_orig, (void *)addr, orig_sizes);
+		my_text_poke((void *)addr, my_return_one_start, orig_sizes);
+	}
+}
+
+static void
+undo_hack_can_probe(void)
+{
+	unsigned long addr;
+
+	if (!orig_sizes || !my_text_poke) {
+		pr_err("can't undo hack, was it done at all?");
+		return;
+	}
+
+	addr = kallsyms_lookup_name("can_probe");
+	if (addr)
+		my_text_poke((void *)addr, can_probe_orig, orig_sizes);
 	else
-		my_text_poke((void *)addr, my_can_probe_start, my_can_probe_end - my_can_probe_start);
+		pr_warn("can't restore can_probe orig");
+
+	addr = kallsyms_lookup_name("kernel_text_address");
+	if (addr)
+		my_text_poke((void *)addr, kernel_text_address_orig, orig_sizes);
+	else
+		pr_warn("can't restore kernel_text_address orig");
 }
 
 int __init init_poormanbts(void)
@@ -477,9 +509,8 @@ int __init init_poormanbts(void)
 	if (!kmem_branch_info)
 		return -ENOMEM;
 
-	if (hack_can_probe) {
+	if (hack_can_probe)
 		do_hack_can_probe();
-	}
 
 	return 0;
 }
@@ -497,6 +528,9 @@ void __exit exit_poormanbts(void)
 
 	if (kmem_branch_info)
 		kmem_cache_destroy(kmem_branch_info);
+
+	if (hack_can_probe)
+		undo_hack_can_probe();
 }
 
 module_init(init_poormanbts);

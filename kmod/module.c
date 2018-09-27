@@ -13,6 +13,10 @@
 
 #include "common.h"
 
+static int hack_can_probe=0;
+module_param(hack_can_probe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(hack_can_probe, "Hack can_probe. You should know what you are doing.");
+
 static LIST_HEAD(tracepoints);
 
 static struct kmem_cache *kmem_tracepoint, *kmem_branch_info;
@@ -330,32 +334,43 @@ poormanbts_handle_symbol(const char *name, size_t count)
 	const char *buf, *end;
 	char namebuf[256], *p;
 
-	addr = kallsyms_lookup_name(name);
-	if (addr == 0)
-		return -ENOENT;
+	if (!strncmp(name, "addr:", 5)) {
+		if (sscanf(name, "addr:0x%lx+0x%lx", &addr, &symbolsize) != 2)
+			return -EINVAL;
+	} else {
+		addr = kallsyms_lookup_name(name);
+		if (addr == 0)
+			return -ENOENT;
 
-	sprint_symbol(namebuf, addr);
-	p = strchr(namebuf, '/');
-	if (!p)
-		return -EINVAL;
+		sprint_symbol(namebuf, addr);
+		p = strchr(namebuf, '/');
+		if (!p)
+			return -EINVAL;
 
-	*p = 0;
-	p++;
+		*p = 0;
+		p++;
 
-	if (sscanf(p, "%lx", &symbolsize) != 1)
-		return -EINVAL;
+		if (sscanf(p, "%lx", &symbolsize) != 1)
+			return -EINVAL;
+	}
+
 
 	buf = (const char *)addr;
 	end = buf + symbolsize;
+
 
 	while (buf < end) {
 		struct branch_op branch = {
 			.opcode = 0,
 			.from = (long) buf,
 		};
+
 		ret = branch_op_decode(&branch, &buf, end - buf);
-		if (ret == -1)
+		if (ret == -1) {
+			pr_err("can't parse instruction at %p\n",
+			       (void *)branch.from);
 			return -EINVAL;
+		}
 
 		if (!ret)
 			continue;
@@ -363,8 +378,11 @@ poormanbts_handle_symbol(const char *name, size_t count)
 		ret = poormanbts_tracepoint_add(branch.from,
 						branch.len,
 						branch.to);
-		if (ret < 0)
+		if (ret < 0) {
+			pr_err("can't install tracepoint at %p\n",
+			       (void *)branch.from);
 			return ret;
+		}
 	}
 
 	return count;
@@ -403,6 +421,43 @@ static const struct file_operations fops = {
 	.release = seq_release,
 };
 
+asm ("\
+my_can_probe_start:\n\
+	movq	$1, %rax\n\
+	ret\n\
+my_can_probe_end:\n\
+     ");
+
+extern char my_can_probe_start[], my_can_probe_end[];
+
+static void *(*my_text_poke)(void *addr, const void *opcode, size_t len);
+
+static void
+do_hack_can_probe(void)
+{
+	unsigned long addr;
+
+	my_text_poke = kallsyms_lookup_name("text_poke");
+	if (my_text_poke == NULL) {
+		pr_err("can't find text_poke");
+		return;
+	}
+
+	pr_warn("You are hacking kprobes mechanism. God bless your soul");
+
+	addr = kallsyms_lookup_name("can_probe");
+	if (!addr)
+		pr_err("can't find can_probe");
+	else
+		my_text_poke((void *)addr, my_can_probe_start, my_can_probe_end - my_can_probe_start);
+
+	addr = kallsyms_lookup_name("kernel_text_address");
+	if (!addr)
+		pr_err("can't find kernel_text_address");
+	else
+		my_text_poke((void *)addr, my_can_probe_start, my_can_probe_end - my_can_probe_start);
+}
+
 int __init init_poormanbts(void)
 {
 	proc_poormanbts = proc_create("poormanbts", 0600,
@@ -421,6 +476,10 @@ int __init init_poormanbts(void)
 					      0, 0, NULL);
 	if (!kmem_branch_info)
 		return -ENOMEM;
+
+	if (hack_can_probe) {
+		do_hack_can_probe();
+	}
 
 	return 0;
 }

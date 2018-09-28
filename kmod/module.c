@@ -17,6 +17,10 @@ static int hack_can_probe=0;
 module_param(hack_can_probe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(hack_can_probe, "Hack can_probe. You should know what you are doing.");
 
+static int ignore_errors=0;
+module_param(ignore_errors, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(ignore_errors, "Only report errors to dmesg and go on.");
+
 static LIST_HEAD(tracepoints);
 
 static struct kmem_cache *kmem_tracepoint, *kmem_branch_info;
@@ -381,6 +385,8 @@ poormanbts_handle_symbol(const char *name, size_t count)
 		if (ret < 0) {
 			pr_err("can't install tracepoint at %p\n",
 			       (void *)branch.from);
+			if (ignore_errors)
+				continue;
 			return ret;
 		}
 	}

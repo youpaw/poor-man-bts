@@ -19,7 +19,7 @@
 #include <stdlib.h>
 
 #define unlikely(cond) (cond)
-#include <asm/insn.h>
+#include <asm-objtool/insn.h>
 #include "lib/inat.c"
 #include "lib/insn.c"
 

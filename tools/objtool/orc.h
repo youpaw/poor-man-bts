@@ -18,7 +18,7 @@
 #ifndef _ORC_H
 #define _ORC_H
 
-#include <asm/orc_types.h>
+#include <asm-objtool/orc_types.h>
 
 struct objtool_file;
 

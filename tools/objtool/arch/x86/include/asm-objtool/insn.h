@@ -21,7 +21,7 @@
  */
 
 /* insn_attr_t is defined in inat.h */
-#include <asm/inat.h>
+#include <asm-objtool/inat.h>
 
 struct insn_field {
 	union {

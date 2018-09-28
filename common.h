@@ -2,7 +2,7 @@
 #ifndef __COMMON_H__
 #define __COMMON_H__
 
-#include <asm/insn.h>
+#include <asm-objtool/insn.h>
 
 
 #ifndef INSN_LAST

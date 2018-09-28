@@ -388,7 +388,9 @@ poormanbts_handle_symbol(const char *name, size_t count)
 			if (ignore_errors)
 				continue;
 			return ret;
-		}
+		} else
+			pr_info("installed tracepoint at %p\n",
+				(void *)branch.from);
 	}
 
 	return count;

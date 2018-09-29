@@ -404,10 +404,11 @@ poormanbts_proc_handler_write(struct file *file,
 	char buf[256], *p;
 	ssize_t ret;
 
-	if (copy_from_user(buf, buffer, min(count, sizeof(buf))))
+	count = min(count, sizeof(buf));
+	if (copy_from_user(buf, buffer, count))
 		return -EFAULT;
 
-	buf[count] = '\0';
+	buf[min(count, sizeof(buf) - 1)] = '\0';
 	p = strchr(buf, '\n');
 	if (p)
 		*p = '\0';

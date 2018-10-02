@@ -439,6 +439,12 @@ poormanbts_handle_symbol(const char *name, size_t count)
 		if (!ret)
 			continue;
 
+		switch (branch.type) {
+		case INSN_JUMP_UNCONDITIONAL:
+		case INSN_CALL:
+			continue;
+		}
+
 		ret = poormanbts_tracepoint_add_branch(&branch);
 		if (ret < 0) {
 			pr_err("can't install tracepoint at %p\n",

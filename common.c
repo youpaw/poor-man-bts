@@ -189,8 +189,10 @@ int branch_op_decode(struct branch_op *branch, const char **pbuf, size_t size)
 		if (op2 >= 0x80 && op2 <= 0x8f) {
 			branch->type = INSN_JUMP_CONDITIONAL;
 			branch->opcode = op2 - 0x10;
+			break;
 		}
-		break;
+
+		return 0;
 	case 0xff:
 		if (modrm_reg == 2 || modrm_reg == 3) {
 			branch->type = INSN_CALL_DYNAMIC;

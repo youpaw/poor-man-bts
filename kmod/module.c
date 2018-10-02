@@ -324,7 +324,7 @@ poormanbts_tracepoint_add_branch(struct branch_op *branch)
 		return ret;
 	}
 
-	list_add(&tracepoint->list, &tracepoints);
+	list_add_tail(&tracepoint->list, &tracepoints);
 
 	return 0;
 }

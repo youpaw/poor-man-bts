@@ -55,9 +55,17 @@ struct pmb_tracepoint {
 };
 
 static inline int
-poormanbts_tracepoint_is_dynamic_jump(struct pmb_tracepoint *tracepoint)
+poormanbts_tracepoint_is_dynamic(struct pmb_tracepoint *tracepoint)
 {
-	return tracepoint->type == INSN_JUMP_DYNAMIC;
+	return  tracepoint->type == INSN_JUMP_DYNAMIC ||
+		tracepoint->type == INSN_CALL_DYNAMIC;
+}
+
+static inline int
+poormanbts_tracepoint_is_uncond(struct pmb_tracepoint *tracepoint)
+{
+	return  tracepoint->type == INSN_JUMP_UNCONDITIONAL ||
+		tracepoint->type == INSN_CALL;
 }
 
 static void *
@@ -92,6 +100,10 @@ poormanbts_seq_show(struct seq_file *m,
 	char *type;
 
 	switch (tracepoint->type) {
+	case INSN_CALL:
+	case INSN_CALL_DYNAMIC:
+		type = "call";
+		break;
 	case INSN_JUMP_DYNAMIC:
 		type = "dynamic";
 		break;
@@ -114,9 +126,9 @@ poormanbts_seq_show(struct seq_file *m,
 			   type);
 	}
 
-	if (!poormanbts_tracepoint_is_dynamic_jump(tracepoint)) {
+	if (!poormanbts_tracepoint_is_dynamic(tracepoint)) {
 
-		if (tracepoint->type != INSN_JUMP_UNCONDITIONAL) {
+		if (!poormanbts_tracepoint_is_uncond(tracepoint)) {
 			seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
 				   (long)tracepoint->probe.addr,
 				   tracepoint->len,
@@ -217,12 +229,12 @@ poormanbts_post_handler_cond(struct kprobe *probe,
 	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
 	unsigned long to = regs->ip;
 
-	if (poormanbts_tracepoint_is_dynamic_jump(tracepoint)) {
+	if (poormanbts_tracepoint_is_dynamic(tracepoint)) {
 		poormanbts_tracepoint_add_dynamic(tracepoint, to);
 		return;
 	}
 
-	if (tracepoint->type == INSN_JUMP_UNCONDITIONAL ||
+	if (poormanbts_tracepoint_is_uncond(tracepoint) ||
 	    tracepoint->to == to) {
 		tracepoint->taken++;
 	} else if (to == (long) tracepoint->probe.addr + tracepoint->len) {
@@ -248,7 +260,7 @@ poormanbts_tracepoint_free(struct pmb_tracepoint *tracepoint)
 	unregister_kprobe(&tracepoint->probe);
 	list_del(&tracepoint->list);
 
-	if (!poormanbts_tracepoint_is_dynamic_jump(tracepoint))
+	if (!poormanbts_tracepoint_is_dynamic(tracepoint))
 		goto free;
 
 	while (node) {

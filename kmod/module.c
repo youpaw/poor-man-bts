@@ -101,8 +101,10 @@ poormanbts_seq_show(struct seq_file *m,
 
 	switch (tracepoint->type) {
 	case INSN_CALL:
-	case INSN_CALL_DYNAMIC:
 		type = "call";
+		break;
+	case INSN_CALL_DYNAMIC:
+		type = "call_dynamic";
 		break;
 	case INSN_JUMP_DYNAMIC:
 		type = "dynamic";

@@ -41,6 +41,7 @@ struct pmb_tracepoint {
 	struct kprobe probe;
 
 	unsigned int len;
+	unsigned int type;
 
 	/* Does this need locking? */
 	union {
@@ -56,8 +57,7 @@ struct pmb_tracepoint {
 static inline int
 poormanbts_tracepoint_is_dynamic_jump(struct pmb_tracepoint *tracepoint)
 {
-#define DYNAMIC_JUMP_OPCODE	0xff
-	return tracepoint->probe.opcode == DYNAMIC_JUMP_OPCODE;
+	return tracepoint->type == INSN_JUMP_DYNAMIC;
 }
 
 static void *
@@ -89,26 +89,48 @@ poormanbts_seq_show(struct seq_file *m,
 	struct pmb_tracepoint *tracepoint =
 		list_entry(v, struct pmb_tracepoint, list);
 	struct rb_node *node = tracepoint->branches.rb_node;
+	char *type;
+
+	switch (tracepoint->type) {
+	case INSN_JUMP_DYNAMIC:
+		type = "dynamic";
+		break;
+	case INSN_JUMP_UNCONDITIONAL:
+		type = "uncond";
+		break;
+	case INSN_JUMP_CONDITIONAL:
+		type = "cond";
+		break;
+	default:
+		type = "unknown";
+		break;
+	}
 
 	if (tracepoint->probe.nmissed) {
-		seq_printf(m, "0x%lx+0x%x->??? %ld\n",
+		seq_printf(m, "0x%lx+0x%x->??? %ld %s\n",
 			   (long)tracepoint->probe.addr,
 			   tracepoint->len,
-			   tracepoint->probe.nmissed);
+			   tracepoint->probe.nmissed,
+			   type);
 	}
 
 	if (!poormanbts_tracepoint_is_dynamic_jump(tracepoint)) {
-		seq_printf(m, "0x%lx+0x%x->0x%lx %d\n",
-			   (long)tracepoint->probe.addr,
-			   tracepoint->len,
-			   (long)tracepoint->probe.addr + tracepoint->len,
-			   tracepoint->nottaken);
 
-		seq_printf(m, "0x%lx+0x%x->0x%lx %d\n",
+		if (tracepoint->type != INSN_JUMP_UNCONDITIONAL) {
+			seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
+				   (long)tracepoint->probe.addr,
+				   tracepoint->len,
+				   (long)tracepoint->probe.addr + tracepoint->len,
+				   tracepoint->nottaken,
+				   type);
+		}
+
+		seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
 			   (long)tracepoint->probe.addr,
 			   tracepoint->len,
 			   tracepoint->to,
-			   tracepoint->taken);
+			   tracepoint->taken,
+			   type);
 		return 0;
 	}
 
@@ -116,11 +138,12 @@ poormanbts_seq_show(struct seq_file *m,
 	while (node) {
 		struct branch_info *p = rb_entry(node, struct branch_info, node);
 
-		seq_printf(m, "0x%lx+0x%x->0x%lx %d\n",
+		seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
 			   (long)tracepoint->probe.addr,
 			   tracepoint->len,
 			   p->to,
-			   p->count);
+			   p->count,
+			   type);
 
 		node = rb_next(node);
 	}
@@ -142,9 +165,11 @@ poormanbts_proc_handlers_open(struct inode *inode,
 }
 
 static int
-poormanbts_kprobe_pre_handler(struct kprobe *probe,
+poormanbts_pre_handler_uncond(struct kprobe *probe,
 			      struct pt_regs *regs)
 {
+	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
+	tracepoint->taken++;
 	return 0;
 }
 
@@ -185,9 +210,9 @@ poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
 }
 
 static void
-poormanbts_kprobe_post_handler(struct kprobe *probe,
-			       struct pt_regs *regs,
-			       unsigned long flags)
+poormanbts_post_handler_cond(struct kprobe *probe,
+			     struct pt_regs *regs,
+			     unsigned long flags)
 {
 	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
 	unsigned long to = regs->ip;
@@ -197,10 +222,11 @@ poormanbts_kprobe_post_handler(struct kprobe *probe,
 		return;
 	}
 
-	if (to == (long) tracepoint->probe.addr + tracepoint->len) {
-		tracepoint->nottaken++;
-	} else if (tracepoint->to == to) {
+	if (tracepoint->type == INSN_JUMP_UNCONDITIONAL ||
+	    tracepoint->to == to) {
 		tracepoint->taken++;
+	} else if (to == (long) tracepoint->probe.addr + tracepoint->len) {
+		tracepoint->nottaken++;
 	} else if (tracepoint->to) {
 		pr_warn("tracepoint->to was %lx -> new %lx\n",
 			tracepoint->to, to);
@@ -255,10 +281,12 @@ free:
 }
 
 static int
-poormanbts_tracepoint_add(long addr, long size, long to)
+poormanbts_tracepoint_add_branch(struct branch_op *branch)
 {
 	struct pmb_tracepoint *tracepoint;
 	int ret;
+
+	long addr = branch->from;
 
 	tracepoint = kmem_cache_alloc(kmem_tracepoint, GFP_KERNEL);
 	if (tracepoint == NULL)
@@ -266,12 +294,17 @@ poormanbts_tracepoint_add(long addr, long size, long to)
 
 	memset(tracepoint, 0, sizeof(*tracepoint));
 
-	tracepoint->len = size;
-	tracepoint->to = to;
-	tracepoint->probe.pre_handler = poormanbts_kprobe_pre_handler;
-	tracepoint->probe.post_handler = poormanbts_kprobe_post_handler;
-	tracepoint->probe.addr = (void *)addr;
 	INIT_LIST_HEAD(&tracepoint->list);
+
+	tracepoint->probe.addr = (void *)addr;
+	tracepoint->len = branch->len;
+	tracepoint->to = branch->to;
+	tracepoint->type = branch->type;
+
+	if (branch->type == INSN_JUMP_UNCONDITIONAL)
+		tracepoint->probe.pre_handler = poormanbts_pre_handler_uncond;
+	else
+		tracepoint->probe.post_handler = poormanbts_post_handler_cond;
 
 	ret = register_kprobe(&tracepoint->probe);
 	if (ret < 0) {
@@ -282,6 +315,19 @@ poormanbts_tracepoint_add(long addr, long size, long to)
 	list_add(&tracepoint->list, &tracepoints);
 
 	return 0;
+}
+
+static int
+poormanbts_tracepoint_add(long addr, long size, long to)
+{
+	struct branch_op branch = {
+		.from = addr,
+		.to = to,
+		.len = size,
+		.type = INSN_OTHER,
+	};
+
+	return poormanbts_tracepoint_add_branch(&branch);
 }
 
 static int
@@ -379,9 +425,7 @@ poormanbts_handle_symbol(const char *name, size_t count)
 		if (!ret)
 			continue;
 
-		ret = poormanbts_tracepoint_add(branch.from,
-						branch.len,
-						branch.to);
+		ret = poormanbts_tracepoint_add_branch(&branch);
 		if (ret < 0) {
 			pr_err("can't install tracepoint at %p\n",
 			       (void *)branch.from);

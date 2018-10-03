@@ -37,7 +37,7 @@ struct branch_op {
 	unsigned int dynamic_sib_mult;
 	unsigned int dynamic_sib_reg;
 
-	unsigned int dynamic_disp32;
+	int dynamic_disp32;
 };
 
 int branch_op_decode(struct branch_op *branch,

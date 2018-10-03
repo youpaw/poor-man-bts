@@ -105,17 +105,20 @@ branch_op_resolve_to(struct branch_op *branch,
 		return read_reg(reg, arg);
 
 	if (!is_sib) {
-		long off;
-		off = read_reg(reg, arg);
-		off += branch->dynamic_disp32;
+		long off = 0;
+		if (reg != REG_NONE)
+			off = read_reg(reg, arg);
+		off += (long)branch->dynamic_disp32;
 		return read_mem(off, arg);
 	} else {
-		long base = 0, index = 0, off;
+		long base = 0, index = 0, off = (long)branch->dynamic_disp32;
 		if (reg != REG_NONE)
 			base = read_reg(reg, arg);
 		if (branch->dynamic_sib_reg != REG_NONE)
 			index = read_reg(branch->dynamic_sib_reg, arg);
-		off = base + index * branch->dynamic_sib_mult + branch->dynamic_disp32;
+
+		off += base + index * branch->dynamic_sib_mult;
+
 		return read_mem(off, arg);
 	}
 

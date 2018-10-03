@@ -44,8 +44,7 @@ struct pmb_tracepoint {
 
 	struct kprobe probe;
 
-	unsigned int len;
-	unsigned int type;
+	struct branch_op branch;
 
 	/* Does this need locking? */
 	union {
@@ -61,15 +60,15 @@ struct pmb_tracepoint {
 static inline int
 poormanbts_tracepoint_is_dynamic(struct pmb_tracepoint *tracepoint)
 {
-	return  tracepoint->type == INSN_JUMP_DYNAMIC ||
-		tracepoint->type == INSN_CALL_DYNAMIC;
+	return  tracepoint->branch.type == INSN_JUMP_DYNAMIC ||
+		tracepoint->branch.type == INSN_CALL_DYNAMIC;
 }
 
 static inline int
 poormanbts_tracepoint_is_uncond(struct pmb_tracepoint *tracepoint)
 {
-	return  tracepoint->type == INSN_JUMP_UNCONDITIONAL ||
-		tracepoint->type == INSN_CALL;
+	return  tracepoint->branch.type == INSN_JUMP_UNCONDITIONAL ||
+		tracepoint->branch.type == INSN_CALL;
 }
 
 static void *
@@ -103,7 +102,7 @@ poormanbts_seq_show(struct seq_file *m,
 	struct rb_node *node = tracepoint->branches.rb_node;
 	char *type;
 
-	switch (tracepoint->type) {
+	switch (tracepoint->branch.type) {
 	case INSN_CALL:
 		type = "call";
 		break;
@@ -127,7 +126,7 @@ poormanbts_seq_show(struct seq_file *m,
 	if (tracepoint->probe.nmissed) {
 		seq_printf(m, "0x%lx+0x%x->??? %ld %s\n",
 			   (long)tracepoint->probe.addr,
-			   tracepoint->len,
+			   tracepoint->branch.len,
 			   tracepoint->probe.nmissed,
 			   type);
 	}
@@ -137,15 +136,15 @@ poormanbts_seq_show(struct seq_file *m,
 		if (!poormanbts_tracepoint_is_uncond(tracepoint)) {
 			seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
 				   (long)tracepoint->probe.addr,
-				   tracepoint->len,
-				   (long)tracepoint->probe.addr + tracepoint->len,
+				   tracepoint->branch.len,
+				   (long)tracepoint->probe.addr + tracepoint->branch.len,
 				   tracepoint->nottaken,
 				   type);
 		}
 
 		seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
 			   (long)tracepoint->probe.addr,
-			   tracepoint->len,
+			   tracepoint->branch.len,
 			   tracepoint->to,
 			   tracepoint->taken,
 			   type);
@@ -158,7 +157,7 @@ poormanbts_seq_show(struct seq_file *m,
 
 		seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
 			   (long)tracepoint->probe.addr,
-			   tracepoint->len,
+			   tracepoint->branch.len,
 			   p->to,
 			   p->count,
 			   type);
@@ -186,17 +185,6 @@ static void
 poormanbts_tracepoint_disable(struct pmb_tracepoint *tracepoint)
 {
 	disable_kprobe(&tracepoint->probe);
-}
-
-static int
-poormanbts_pre_handler_uncond(struct kprobe *probe,
-			      struct pt_regs *regs)
-{
-	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
-	tracepoint->taken++;
-	if (deactivate_threshold != -1UL && tracepoint->taken >= deactivate_threshold)
-		poormanbts_tracepoint_disable(tracepoint);
-	return 0;
 }
 
 static void
@@ -235,6 +223,19 @@ poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
 	}
 }
 
+static int
+poormanbts_pre_handler_uncond(struct kprobe *probe,
+			      struct pt_regs *regs)
+{
+	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
+
+	tracepoint->taken++;
+	if (deactivate_threshold != -1UL && tracepoint->taken >= deactivate_threshold)
+		poormanbts_tracepoint_disable(tracepoint);
+
+	return 0;
+}
+
 /* TODO(pboldin) Probably check the conditions so that no post_handler is
  * required and kprobes may be optimised */
 static void
@@ -252,7 +253,7 @@ poormanbts_post_handler_cond(struct kprobe *probe,
 
 	if (tracepoint->to == to) {
 		tracepoint->taken++;
-	} else if (to == (long) tracepoint->probe.addr + tracepoint->len) {
+	} else if (to == (long) tracepoint->probe.addr + tracepoint->branch.len) {
 		tracepoint->nottaken++;
 	} else if (tracepoint->to) {
 		pr_warn("tracepoint->to was %lx -> new %lx\n",
@@ -333,9 +334,7 @@ poormanbts_tracepoint_add_branch(struct branch_op *branch)
 	INIT_LIST_HEAD(&tracepoint->list);
 
 	tracepoint->probe.addr = (void *)addr;
-	tracepoint->len = branch->len;
-	tracepoint->to = branch->to;
-	tracepoint->type = branch->type;
+	tracepoint->branch = *branch;
 
 	if (poormanbts_tracepoint_is_uncond(tracepoint))
 		tracepoint->probe.pre_handler = poormanbts_pre_handler_uncond;
@@ -373,7 +372,7 @@ poormanbts_tracepoint_remove(long addr, long size)
 
 	list_for_each_entry(tracepoint, &tracepoints, list) {
 		if (tracepoint->probe.addr == (void *)addr &&
-		    tracepoint->len == size) {
+		    tracepoint->branch.len == size) {
 			poormanbts_tracepoint_free(tracepoint);
 			return 0;
 		}

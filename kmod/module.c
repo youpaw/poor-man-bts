@@ -21,6 +21,10 @@ static int ignore_errors=0;
 module_param(ignore_errors, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(ignore_errors, "Only report errors to dmesg and go on.");
 
+static unsigned long deactivate_threshold=-1UL;
+module_param(deactivate_threshold, ulong, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(deactivate_threshold, "Deactivate probes that where hit that many times.");
+
 static LIST_HEAD(tracepoints);
 
 static struct kmem_cache *kmem_tracepoint, *kmem_branch_info;
@@ -178,12 +182,20 @@ poormanbts_proc_handlers_open(struct inode *inode,
 	return seq_open(file, &poormanbts_seq_ops);
 }
 
+static void
+poormanbts_tracepoint_disable(struct pmb_tracepoint *tracepoint)
+{
+	disable_kprobe(&tracepoint->probe);
+}
+
 static int
 poormanbts_pre_handler_uncond(struct kprobe *probe,
 			      struct pt_regs *regs)
 {
 	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
 	tracepoint->taken++;
+	if (deactivate_threshold != -1UL && tracepoint->taken >= deactivate_threshold)
+		poormanbts_tracepoint_disable(tracepoint);
 	return 0;
 }
 
@@ -223,6 +235,8 @@ poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
 	}
 }
 
+/* TODO(pboldin) Probably check the conditions so that no post_handler is
+ * required and kprobes may be optimised */
 static void
 poormanbts_post_handler_cond(struct kprobe *probe,
 			     struct pt_regs *regs,
@@ -236,8 +250,7 @@ poormanbts_post_handler_cond(struct kprobe *probe,
 		return;
 	}
 
-	if (poormanbts_tracepoint_is_uncond(tracepoint) ||
-	    tracepoint->to == to) {
+	if (tracepoint->to == to) {
 		tracepoint->taken++;
 	} else if (to == (long) tracepoint->probe.addr + tracepoint->len) {
 		tracepoint->nottaken++;
@@ -249,6 +262,15 @@ poormanbts_post_handler_cond(struct kprobe *probe,
 	} else /* if (!tracepoint->to) */ {
 		tracepoint->to = to;
 		tracepoint->taken++;
+	}
+
+	if (deactivate_threshold != -1UL) {
+		long sum = tracepoint->taken + tracepoint->nottaken;
+
+		if ((tracepoint->taken && tracepoint->nottaken
+		     && sum >= deactivate_threshold) ||
+		    sum >= 2 * deactivate_threshold)
+			poormanbts_tracepoint_disable(tracepoint);
 	}
 
 	return;
@@ -315,7 +337,7 @@ poormanbts_tracepoint_add_branch(struct branch_op *branch)
 	tracepoint->to = branch->to;
 	tracepoint->type = branch->type;
 
-	if (branch->type == INSN_JUMP_UNCONDITIONAL)
+	if (poormanbts_tracepoint_is_uncond(tracepoint))
 		tracepoint->probe.pre_handler = poormanbts_pre_handler_uncond;
 	else
 		tracepoint->probe.post_handler = poormanbts_post_handler_cond;
@@ -438,12 +460,6 @@ poormanbts_handle_symbol(const char *name, size_t count)
 
 		if (!ret)
 			continue;
-
-		switch (branch.type) {
-		case INSN_JUMP_UNCONDITIONAL:
-		case INSN_CALL:
-			continue;
-		}
 
 		ret = poormanbts_tracepoint_add_branch(&branch);
 		if (ret < 0) {
@@ -593,6 +609,7 @@ void __exit exit_poormanbts(void)
 	struct pmb_tracepoint *tracepoint, *tmp;
 	proc_remove(proc_poormanbts);
 
+	/* TODO(pboldin): do bulk unregister here */
 	list_for_each_entry_safe(tracepoint, tmp, &tracepoints, list)
 		poormanbts_tracepoint_free(tracepoint);
 

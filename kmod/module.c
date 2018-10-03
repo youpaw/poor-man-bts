@@ -50,13 +50,13 @@ struct pmb_tracepoint {
 	union {
 		struct rb_root branches;
 		struct {
-			unsigned long to;
 			unsigned int taken;
 			unsigned int nottaken;
 		};
 	};
 };
 
+/* TODO(pboldin) These should be named branch_is_dynamic / branch_is_uncond */
 static inline int
 poormanbts_tracepoint_is_dynamic(struct pmb_tracepoint *tracepoint)
 {
@@ -145,7 +145,7 @@ poormanbts_seq_show(struct seq_file *m,
 		seq_printf(m, "0x%lx+0x%x->0x%lx %d %s\n",
 			   (long)tracepoint->probe.addr,
 			   tracepoint->branch.len,
-			   tracepoint->to,
+			   tracepoint->branch.to,
 			   tracepoint->taken,
 			   type);
 		return 0;
@@ -223,47 +223,68 @@ poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
 	}
 }
 
+static unsigned long reg_to_offset[] = {
+#define REG(x)	offsetof(struct pt_regs, x)
+	[0]	=	REG(ax),
+	[1]	=	REG(cx),
+	[2]	=	REG(dx),
+	[3]	=	REG(bx),
+	[4]	=	REG(sp),
+	[5]	=	REG(bp),
+	[6]	=	REG(si),
+	[7]	=	REG(di),
+
+#define	REG2(x)	[x]	=	REG(r ## x)
+	REG2(8),
+	REG2(9),
+	REG2(10),
+	REG2(11),
+	REG2(12),
+	REG2(13),
+	REG2(14),
+	REG2(15),
+	[REG_RIP]	=	REG(ip),
+#undef REG
+#undef REG2
+};
+
+
+static long
+poormanbts_read_reg(int reg, void *data)
+{
+	return *(long *)(data + reg_to_offset[reg]);
+}
+
+static long
+poormanbts_read_mem(long mem, void *arg)
+{
+	return *(long *)mem;
+}
+
 static int
-poormanbts_pre_handler_uncond(struct kprobe *probe,
+poormanbts_kprobe_pre_handler(struct kprobe *probe,
 			      struct pt_regs *regs)
 {
 	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
-
-	tracepoint->taken++;
-	if (deactivate_threshold != -1UL && tracepoint->taken >= deactivate_threshold)
-		poormanbts_tracepoint_disable(tracepoint);
-
-	return 0;
-}
-
-/* TODO(pboldin) Probably check the conditions so that no post_handler is
- * required and kprobes may be optimised */
-static void
-poormanbts_post_handler_cond(struct kprobe *probe,
-			     struct pt_regs *regs,
-			     unsigned long flags)
-{
-	struct pmb_tracepoint *tracepoint = container_of(probe, struct pmb_tracepoint, probe);
-	unsigned long to = regs->ip;
+	int cond;
 
 	if (poormanbts_tracepoint_is_dynamic(tracepoint)) {
+		long to = branch_op_resolve_to(&tracepoint->branch,
+					  poormanbts_read_reg,
+					  poormanbts_read_mem,
+					  (void *)regs);
 		poormanbts_tracepoint_add_dynamic(tracepoint, to);
-		return;
+		return 0;
 	}
 
-	if (tracepoint->to == to) {
+	cond = branch_op_check_condition(&tracepoint->branch,
+					 regs->flags,
+					 regs->cx);
+
+	if (cond)
 		tracepoint->taken++;
-	} else if (to == (long) tracepoint->probe.addr + tracepoint->branch.len) {
+	else
 		tracepoint->nottaken++;
-	} else if (tracepoint->to) {
-		pr_warn("tracepoint->to was %lx -> new %lx\n",
-			tracepoint->to, to);
-		tracepoint->taken = tracepoint->nottaken = 0;
-		tracepoint->to = to;
-	} else /* if (!tracepoint->to) */ {
-		tracepoint->to = to;
-		tracepoint->taken++;
-	}
 
 	if (deactivate_threshold != -1UL) {
 		long sum = tracepoint->taken + tracepoint->nottaken;
@@ -274,7 +295,7 @@ poormanbts_post_handler_cond(struct kprobe *probe,
 			poormanbts_tracepoint_disable(tracepoint);
 	}
 
-	return;
+	return 0;
 }
 
 static void
@@ -335,11 +356,7 @@ poormanbts_tracepoint_add_branch(struct branch_op *branch)
 
 	tracepoint->probe.addr = (void *)addr;
 	tracepoint->branch = *branch;
-
-	if (poormanbts_tracepoint_is_uncond(tracepoint))
-		tracepoint->probe.pre_handler = poormanbts_pre_handler_uncond;
-	else
-		tracepoint->probe.post_handler = poormanbts_post_handler_cond;
+	tracepoint->probe.pre_handler = poormanbts_kprobe_pre_handler;
 
 	ret = register_kprobe(&tracepoint->probe);
 	if (ret < 0) {

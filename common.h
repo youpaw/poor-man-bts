@@ -20,7 +20,8 @@
 # define INSN_LAST		INSN_OTHER
 #endif /* INSN_LAST */
 
-#define REG_RIP	16
+#define REG_RIP		16
+#define REG_NONE	17
 
 struct branch_op {
 #define JUMP_OP_OPCODE_DYNAMIC	0xff

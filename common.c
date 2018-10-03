@@ -110,10 +110,12 @@ branch_op_resolve_to(struct branch_op *branch,
 		off += branch->dynamic_disp32;
 		return read_mem(off, arg);
 	} else {
-		long base, index, off;
-		base = read_reg(reg, arg);
-		index = read_reg(branch->dynamic_sib_reg, arg);
-		off = base + index * branch->dynamic_sib_mult;
+		long base = 0, index = 0, off;
+		if (reg != REG_NONE)
+			base = read_reg(reg, arg);
+		if (branch->dynamic_sib_reg != REG_NONE)
+			index = read_reg(branch->dynamic_sib_reg, arg);
+		off = base + index * branch->dynamic_sib_mult + branch->dynamic_disp32;
 		return read_mem(off, arg);
 	}
 
@@ -213,12 +215,20 @@ dynamic_regs:
 	branch->to = 0;
 	branch->dynamic_reg = modrm_rm + (rex_b << 3);
 
-	if (modrm_mod != 0x3) { /* is mem ref */
+	/* SDM Vol. 2, Table 2-2 */
+	if (modrm_mod != 0x3) {
+		/* RIP-relative addressing, Table 2-7 */
 		if (modrm_mod == 0 && modrm_rm == 0x5) {
-			branch->dynamic_reg = REG_RIP; /* RIP */
-		} else if (modrm_rm == 0x4) { /* is sib ref */
+			branch->dynamic_reg = REG_RIP;
+		}
+		/* SIB byte, Table 2-3 */
+		else if (modrm_rm == 0x4) {
 			branch->dynamic_reg = X86_SIB_BASE(sib) + (rex_b << 3);
+			if (branch->dynamic_reg == 0x5 && modrm_mod == 0)
+				branch->dynamic_reg = REG_NONE;
 			branch->dynamic_sib_reg  = X86_SIB_INDEX(sib) + (rex_x << 3);
+			if (branch->dynamic_sib_reg == 0x4)
+				branch->dynamic_sib_reg = REG_NONE;
 			branch->dynamic_sib_mult = 1 << X86_SIB_SCALE(sib);
 		}
 

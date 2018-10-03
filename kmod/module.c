@@ -271,21 +271,20 @@ poormanbts_kprobe_pre_handler(struct kprobe *probe,
 
 	if (poormanbts_tracepoint_is_dynamic(tracepoint)) {
 		long to = branch_op_resolve_to(&tracepoint->branch,
-					  poormanbts_read_reg,
-					  poormanbts_read_mem,
-					  (void *)regs);
+					       poormanbts_read_reg,
+					       poormanbts_read_mem,
+					       (void *)regs);
 		poormanbts_tracepoint_add_dynamic(tracepoint, to);
-		return 0;
+	} else {
+		cond = branch_op_check_condition(&tracepoint->branch,
+						 regs->flags,
+						 regs->cx);
+
+		if (cond)
+			tracepoint->taken++;
+		else
+			tracepoint->nottaken++;
 	}
-
-	cond = branch_op_check_condition(&tracepoint->branch,
-					 regs->flags,
-					 regs->cx);
-
-	if (cond)
-		tracepoint->taken++;
-	else
-		tracepoint->nottaken++;
 
 	if (deactivate_threshold != -1UL) {
 		long sum = tracepoint->taken + tracepoint->nottaken;

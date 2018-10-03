@@ -258,7 +258,8 @@ poormanbts_read_reg(int reg, void *data)
 static long
 poormanbts_read_mem(long mem, void *arg)
 {
-	return *(long *)mem;
+	return 0; /* FIXME */
+	//return *(long *)mem;
 }
 
 static int

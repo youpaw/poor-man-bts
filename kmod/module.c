@@ -492,6 +492,10 @@ poormanbts_handle_symbol(const char *name, size_t count)
 		switch (branch.type) {
 		case INSN_JUMP_UNCONDITIONAL:
 		case INSN_CALL:
+		case INSN_CALL_DYNAMIC:
+		/**
+		 * cover jump_dynamic -- this is how switch/case is implemented
+		 */
 			continue;
 		}
 

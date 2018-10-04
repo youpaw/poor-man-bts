@@ -49,14 +49,11 @@ struct pmb_tracepoint {
 
 	struct work_struct work;
 
-	/* Does this need locking? */
-	union {
-		struct rb_root branches;
-		struct {
-			unsigned int taken;
-			unsigned int nottaken;
-		};
-	};
+	struct rb_root branches;
+	spinlock_t branches_lock;
+
+	unsigned int taken;
+	unsigned int nottaken;
 };
 
 /* TODO(pboldin) These should be named branch_is_dynamic / branch_is_uncond */
@@ -197,11 +194,11 @@ poormanbts_tracepoint_disable(struct pmb_tracepoint *tracepoint)
 	schedule_work(&tracepoint->work);
 }
 
-static void
-poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
-				  long to)
+static struct rb_node **
+poormanbts_find_branch_info(struct rb_root *root,
+			    long to,
+			    struct rb_node **pparent)
 {
-	struct rb_root *root = &tracepoint->branches;
 	struct rb_node **new = &root->rb_node, *parent = NULL;
 	struct branch_info *p;
 
@@ -218,19 +215,52 @@ poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
 			break;
 	}
 
+	if (pparent)
+		*pparent = parent;
+
+	return new;
+}
+
+static void
+poormanbts_tracepoint_add_dynamic(struct pmb_tracepoint *tracepoint,
+				  long to)
+{
+	struct rb_root *root = &tracepoint->branches;
+	struct branch_info *p;
+	struct rb_node **new, *parent;
+	spinlock_t *lock = &tracepoint->branches_lock;
+
+	spin_lock(lock);
+	new = poormanbts_find_branch_info(root, to, &parent);
+
 	if (*new) { /* found it */
+found:
 		p = rb_entry(*new, struct branch_info, node);
 		p->count++;
+
 	} else { /* allocate new */
-		/* use kmem_cache */
+		spin_unlock(lock);
+
 		p = kmem_cache_alloc(kmem_branch_info, GFP_KERNEL);
 
 		p->to = to;
 		p->count = 1;
 
+		spin_lock(lock);
+
+		new = poormanbts_find_branch_info(root, to, &parent);
+		/* We lost the race */
+		if (*new) {
+			kmem_cache_free(kmem_branch_info, p);
+			goto found;
+		}
+
 		rb_link_node(&p->node, parent, new);
 		rb_insert_color(&p->node, root);
+
 	}
+
+	spin_unlock(lock);
 }
 
 static unsigned long reg_to_offset[] = {
@@ -271,6 +301,7 @@ poormanbts_read_mem(long mem, void *arg)
 	return *(long *)mem;
 }
 
+/* TODO(pboldin): this should be shared into common.c */
 static int
 poormanbts_kprobe_pre_handler(struct kprobe *probe,
 			      struct pt_regs *regs)
@@ -363,6 +394,8 @@ poormanbts_tracepoint_add_branch(struct branch_op *branch)
 	memset(tracepoint, 0, sizeof(*tracepoint));
 
 	INIT_LIST_HEAD(&tracepoint->list);
+	tracepoint->branches = RB_ROOT;
+	spin_lock_init(&tracepoint->branches_lock);
 
 	tracepoint->probe.addr = (void *)addr;
 	tracepoint->branch = *branch;

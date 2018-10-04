@@ -284,6 +284,7 @@ poormanbts_kprobe_pre_handler(struct kprobe *probe,
 					       poormanbts_read_mem,
 					       (void *)regs);
 		poormanbts_tracepoint_add_dynamic(tracepoint, to);
+		tracepoint->taken += 2;
 	} else {
 		cond = branch_op_check_condition(&tracepoint->branch,
 						 regs->flags,

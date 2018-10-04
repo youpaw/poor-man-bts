@@ -8,6 +8,7 @@
 #include <linux/slab.h>
 #include <linux/rbtree.h>
 #include <linux/spinlock.h>
+#include <linux/workqueue.h>
 
 #include <asm/uaccess.h>
 
@@ -45,6 +46,8 @@ struct pmb_tracepoint {
 	struct kprobe probe;
 
 	struct branch_op branch;
+
+	struct work_struct work;
 
 	/* Does this need locking? */
 	union {
@@ -182,9 +185,16 @@ poormanbts_proc_handlers_open(struct inode *inode,
 }
 
 static void
+poormanbts_work_kprobe_disable(struct work_struct *work)
+{
+	struct pmb_tracepoint *tracepoint = container_of(work, struct pmb_tracepoint, work);
+	disable_kprobe(&tracepoint->probe);
+}
+
+static void
 poormanbts_tracepoint_disable(struct pmb_tracepoint *tracepoint)
 {
-	disable_kprobe(&tracepoint->probe);
+	schedule_work(&tracepoint->work);
 }
 
 static void
@@ -356,6 +366,8 @@ poormanbts_tracepoint_add_branch(struct branch_op *branch)
 	tracepoint->probe.addr = (void *)addr;
 	tracepoint->branch = *branch;
 	tracepoint->probe.pre_handler = poormanbts_kprobe_pre_handler;
+
+	INIT_WORK(&tracepoint->work, poormanbts_work_kprobe_disable);
 
 	ret = register_kprobe(&tracepoint->probe);
 	if (ret < 0) {

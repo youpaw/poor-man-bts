@@ -473,6 +473,9 @@ delete_entry:
 	return count;
 }
 
+static bool (*my_within_kprobe_blacklist)(unsigned long addr);
+static unsigned long __kprobes_text_start, __kprobes_text_end;
+
 static ssize_t
 poormanbts_handle_symbol(const char *name, size_t count)
 {
@@ -501,6 +504,15 @@ poormanbts_handle_symbol(const char *name, size_t count)
 			return -EINVAL;
 	}
 
+	if ((
+	     addr >= (unsigned long)__kprobes_text_start &&
+	     addr < (unsigned long)__kprobes_text_end
+	     ) ||
+	    (my_within_kprobe_blacklist && my_within_kprobe_blacklist(addr))) {
+		pr_warn("ignoring '%s', as it is within kprobes\n",
+			name);
+		return 0;
+	}
 
 	buf = (const char *)addr;
 	end = buf + symbolsize;
@@ -579,6 +591,7 @@ static const struct file_operations fops = {
 	.release = seq_release,
 };
 
+/* TODO(pboldin): fix our code and remove this hack */
 asm ("\
 my_return_one_start:\n\
 	movq	$1, %rax\n\
@@ -606,7 +619,7 @@ do_hack_can_probe(void)
 
 	orig_sizes = my_return_one_end - my_return_one_start;
 
-	pr_warn("You are hacking kprobes mechanism. God bless your soul");
+	pr_warn("You are hacking kprobes mechanism. God bless your soul\n");
 
 	addr = kallsyms_lookup_name("can_probe");
 	if (!addr)
@@ -650,6 +663,10 @@ undo_hack_can_probe(void)
 
 int __init init_poormanbts(void)
 {
+	__kprobes_text_start = kallsyms_lookup_name("__kprobes_text_start");
+	__kprobes_text_end = kallsyms_lookup_name("__kprobes_text_end");
+	my_within_kprobe_blacklist = (void *)kallsyms_lookup_name("within_kprobe_blacklist");
+
 	proc_poormanbts = proc_create("poormanbts", 0600,
 				      NULL, &fops);
 	if (!proc_poormanbts)

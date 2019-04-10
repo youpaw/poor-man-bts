@@ -9,7 +9,11 @@
 #include <linux/rbtree.h>
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
+#include <linux/version.h>
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32) 
+#include <linux/kallsyms.h>
+#endif
 #include <asm/uaccess.h>
 
 #include "common.h"
@@ -693,8 +697,12 @@ int __init init_poormanbts(void)
 void __exit exit_poormanbts(void)
 {
 	struct pmb_tracepoint *tracepoint, *tmp;
-	proc_remove(proc_poormanbts);
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32)
+	remove_proc_entry("poormanbts", NULL);
+#else
+	proc_remove(proc_poormanbts);
+#endif
 	/* TODO(pboldin): do bulk unregister here */
 	list_for_each_entry_safe(tracepoint, tmp, &tracepoints, list)
 		poormanbts_tracepoint_free(tracepoint);

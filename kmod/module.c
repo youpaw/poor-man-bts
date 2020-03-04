@@ -245,7 +245,11 @@ found:
 	} else { /* allocate new */
 		spin_unlock(lock);
 
-		p = kmem_cache_alloc(kmem_branch_info, GFP_KERNEL);
+		p = kmem_cache_alloc(kmem_branch_info, GFP_ATOMIC);
+		if (!p) {
+			pr_err("can't allocate memory for dynamic tracepoint: %p", tracepoint->branch.from);
+			return;
+		}
 
 		p->to = to;
 		p->count = 1;

@@ -14,7 +14,7 @@
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32) 
 #include <linux/kallsyms.h>
 #endif
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "common.h"
 

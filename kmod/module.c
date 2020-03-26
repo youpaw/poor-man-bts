@@ -30,6 +30,10 @@ static unsigned long deactivate_threshold=-1UL;
 module_param(deactivate_threshold, ulong, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(deactivate_threshold, "Deactivate probes that where hit that many times.");
 
+static unsigned long sym_kallsyms_lookup_name=0;
+module_param(sym_kallsyms_lookup_name, ulong, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(sym_kallsyms_lookup_name, "Address of kallsyms_lookup_name().");
+
 static LIST_HEAD(tracepoints);
 
 static struct kmem_cache *kmem_tracepoint, *kmem_branch_info;
@@ -481,8 +485,25 @@ delete_entry:
 	return count;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
+#define my_kallsyms_lookup_name kallsyms_lookup_name
+#else
+static unsigned long my_kallsyms_lookup_name(const char *name)
+{
+        unsigned long addr = 0;
+
+		if (!sym_kallsyms_lookup_name) {
+			pr_err("kallsyms_lookup_name() symbol was not specified.\n");
+			return 0;
+		}
+		unsigned long (*my_kallsyms_lookup_name)(char *name) = sym_kallsyms_lookup_name;
+		addr = my_kallsyms_lookup_name(name);
+		return addr;
+}
+#endif
+
 static bool (*my_within_kprobe_blacklist)(unsigned long addr);
-static unsigned long __kprobes_text_start, __kprobes_text_end;
+static unsigned long my___kprobes_text_start, my___kprobes_text_end;
 
 static ssize_t
 poormanbts_handle_symbol(const char *name, size_t count)
@@ -496,7 +517,7 @@ poormanbts_handle_symbol(const char *name, size_t count)
 		if (sscanf(name, "addr:0x%lx+0x%lx", &addr, &symbolsize) != 2)
 			return -EINVAL;
 	} else {
-		addr = kallsyms_lookup_name(name);
+		addr = my_kallsyms_lookup_name(name);
 		if (addr == 0)
 			return -ENOENT;
 
@@ -513,8 +534,8 @@ poormanbts_handle_symbol(const char *name, size_t count)
 	}
 
 	if ((
-	     addr >= (unsigned long)__kprobes_text_start &&
-	     addr < (unsigned long)__kprobes_text_end
+	     addr >= (unsigned long)my___kprobes_text_start &&
+	     addr < (unsigned long)my___kprobes_text_end
 	     ) ||
 	    (my_within_kprobe_blacklist && my_within_kprobe_blacklist(addr))) {
 		pr_warn("ignoring '%s', as it is within kprobes\n",
@@ -619,7 +640,7 @@ do_hack_can_probe(void)
 {
 	unsigned long addr;
 
-	my_text_poke = (void *)kallsyms_lookup_name("text_poke");
+	my_text_poke = (void *)my_kallsyms_lookup_name("text_poke");
 	if (my_text_poke == NULL) {
 		pr_err("can't find text_poke");
 		return;
@@ -629,7 +650,7 @@ do_hack_can_probe(void)
 
 	pr_warn("You are hacking kprobes mechanism. God bless your soul\n");
 
-	addr = kallsyms_lookup_name("can_probe");
+	addr = my_kallsyms_lookup_name("can_probe");
 	if (!addr)
 		pr_err("can't find can_probe");
 	else {
@@ -637,7 +658,7 @@ do_hack_can_probe(void)
 		my_text_poke((void *)addr, my_return_one_start, orig_sizes);
 	}
 
-	addr = kallsyms_lookup_name("kernel_text_address");
+	addr = my_kallsyms_lookup_name("kernel_text_address");
 	if (!addr)
 		pr_err("can't find kernel_text_address");
 	else {
@@ -656,13 +677,13 @@ undo_hack_can_probe(void)
 		return;
 	}
 
-	addr = kallsyms_lookup_name("can_probe");
+	addr = my_kallsyms_lookup_name("can_probe");
 	if (addr)
 		my_text_poke((void *)addr, can_probe_orig, orig_sizes);
 	else
 		pr_warn("can't restore can_probe orig");
 
-	addr = kallsyms_lookup_name("kernel_text_address");
+	addr = my_kallsyms_lookup_name("kernel_text_address");
 	if (addr)
 		my_text_poke((void *)addr, kernel_text_address_orig, orig_sizes);
 	else
@@ -671,9 +692,11 @@ undo_hack_can_probe(void)
 
 int __init init_poormanbts(void)
 {
-	__kprobes_text_start = kallsyms_lookup_name("__kprobes_text_start");
-	__kprobes_text_end = kallsyms_lookup_name("__kprobes_text_end");
-	my_within_kprobe_blacklist = (void *)kallsyms_lookup_name("within_kprobe_blacklist");
+	my___kprobes_text_start = my_kallsyms_lookup_name("__kprobes_text_start");
+	my___kprobes_text_end = my_kallsyms_lookup_name("__kprobes_text_end");
+	my_within_kprobe_blacklist = (void *)my_kallsyms_lookup_name("within_kprobe_blacklist");
+	if (!my___kprobes_text_start || !my___kprobes_text_end)
+		return -ENOENT;
 
 	proc_poormanbts = proc_create("poormanbts", 0600,
 				      NULL, &fops);

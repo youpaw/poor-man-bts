@@ -8,7 +8,6 @@
 #include <linux/slab.h>
 #include <linux/rbtree.h>
 #include <linux/spinlock.h>
-#include <linux/workqueue.h>
 #include <linux/version.h>
 
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32) 
@@ -34,6 +33,8 @@ static unsigned long sym_kallsyms_lookup_name=0;
 module_param(sym_kallsyms_lookup_name, ulong, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(sym_kallsyms_lookup_name, "Address of kallsyms_lookup_name().");
 
+void (*my_arch_disarm_kprobe)(struct kprobe *p);
+
 static LIST_HEAD(tracepoints);
 
 static struct kmem_cache *kmem_tracepoint, *kmem_branch_info;
@@ -54,8 +55,6 @@ struct pmb_tracepoint {
 	struct kprobe probe;
 
 	struct branch_op branch;
-
-	struct work_struct work;
 
 	struct rb_root branches;
 	spinlock_t branches_lock;
@@ -189,17 +188,18 @@ poormanbts_proc_handlers_open(struct inode *inode,
 	return seq_open(file, &poormanbts_seq_ops);
 }
 
-static void
-poormanbts_work_kprobe_disable(struct work_struct *work)
-{
-	struct pmb_tracepoint *tracepoint = container_of(work, struct pmb_tracepoint, work);
-	disable_kprobe(&tracepoint->probe);
-}
+DEFINE_SPINLOCK(poormanbts_kprobe_lock);
 
 static void
 poormanbts_tracepoint_disable(struct pmb_tracepoint *tracepoint)
 {
-	schedule_work(&tracepoint->work);
+	struct kprobe *probe = &tracepoint->probe;
+	spin_lock(&poormanbts_kprobe_lock);
+	if (!kprobe_disabled(probe)) {
+		my_arch_disarm_kprobe(probe);
+		probe->flags |= KPROBE_FLAG_DISABLED;
+	}
+	spin_unlock(&poormanbts_kprobe_lock);
 }
 
 static struct rb_node **
@@ -412,8 +412,6 @@ poormanbts_tracepoint_add_branch(struct branch_op *branch)
 	tracepoint->probe.addr = (void *)addr;
 	tracepoint->branch = *branch;
 	tracepoint->probe.pre_handler = poormanbts_kprobe_pre_handler;
-
-	INIT_WORK(&tracepoint->work, poormanbts_work_kprobe_disable);
 
 	ret = register_kprobe(&tracepoint->probe);
 	if (ret < 0) {
@@ -695,7 +693,8 @@ int __init init_poormanbts(void)
 	my___kprobes_text_start = my_kallsyms_lookup_name("__kprobes_text_start");
 	my___kprobes_text_end = my_kallsyms_lookup_name("__kprobes_text_end");
 	my_within_kprobe_blacklist = (void *)my_kallsyms_lookup_name("within_kprobe_blacklist");
-	if (!my___kprobes_text_start || !my___kprobes_text_end)
+	my_arch_disarm_kprobe = my_kallsyms_lookup_name("arch_disarm_kprobe");
+	if (!my___kprobes_text_start || !my___kprobes_text_end || !my_arch_disarm_kprobe)
 		return -ENOENT;
 
 	proc_poormanbts = proc_create("poormanbts", 0600,
